@@ -712,7 +712,7 @@ public final class BodyGuardGui implements Listener {
                 showUnavailableAndReturn(player, holder);
                 return;
             }
-            showResult(player, "gui-mode-changed", "&a{mode}に変更しました。",
+            showResult(player, "gui-mode-changed", "&a{name}：&f{mode} &aに変更しました。",
                     Map.of("name", plugin.color(data.getName()), "mode", mode.japaneseName()), true);
             transition(player, () -> openDetails(player, holder.getGuardId(), holder.getPage(),
                     holder.getFilter(), holder.getSort()));
@@ -1098,6 +1098,8 @@ public final class BodyGuardGui implements Listener {
         if (data == null || mob == null) {
             lore.add(text("gui.unloaded-action",
                     "&e現在この護衛の状態を確認できないため操作できません。"));
+            lore.add(text("gui.unavailable-next",
+                    "&7状態を確認できる場所で手動更新してください。"));
         } else if (!current) {
             lore.add(text("gui.click-mode", "&7クリックで変更"));
         }
@@ -1178,6 +1180,8 @@ public final class BodyGuardGui implements Listener {
         } else if (data == null || mob == null) {
             fullLore.add(text("gui.unloaded-action",
                     "&e現在この護衛の状態を確認できないため操作できません。"));
+            fullLore.add(text("gui.unavailable-next",
+                    "&7状態を確認できる場所で手動更新してください。"));
         } else {
             fullLore.add(text("gui.click-to-use", "&bクリックして実行"));
         }
