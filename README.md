@@ -115,7 +115,14 @@ NMSやCraftBukkit内部クラスは使用していません。Spigot APIにはMo
 
 ## ビルド方法（Windows）
 
-コマンドプロンプトでプロジェクトフォルダを開き、次を実行します。
+Mavenがインストールされ、`mvn` がPATHに登録されているWindows 10環境では、プロジェクトフォルダの `build.bat` をダブルクリックしてください。コマンドプロンプトから実行する場合は次のとおりです。
+
+```bat
+cd /d C:\Users\USER\Documents\Plugin\BodyGuard
+build.bat
+```
+
+同じ処理をMavenコマンドで直接実行する場合は次のとおりです。
 
 ```bat
 mvn clean package
