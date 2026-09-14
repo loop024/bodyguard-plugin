@@ -1,5 +1,12 @@
 package plugin.test.com.bodyGuard.listener;
 
+import org.bukkit.Bukkit;
+import org.bukkit.entity.Entity;
+import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
+import org.bukkit.event.Listener;
+import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
@@ -7,16 +14,25 @@ import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.world.ChunkLoadEvent;
 import org.bukkit.event.world.ChunkUnloadEvent;
+import org.bukkit.inventory.EquipmentSlot;
+import org.bukkit.inventory.ItemStack;
 
+import plugin.test.com.bodyGuard.BodyGuard;
+import plugin.test.com.bodyGuard.gui.BodyGuardGui;
+import plugin.test.com.bodyGuard.guard.GuardData;
 import plugin.test.com.bodyGuard.guard.GuardManager;
 
 /** Handles owner online state and lightweight chunk-based guard restoration. */
 public final class PlayerListener implements Listener {
 
     private final GuardManager manager;
+    private final BodyGuard plugin;
+    private final BodyGuardGui gui;
 
-    public PlayerListener(GuardManager manager) {
+    public PlayerListener(BodyGuard plugin, GuardManager manager, BodyGuardGui gui) {
+        this.plugin = plugin;
         this.manager = manager;
+        this.gui = gui;
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -37,5 +53,35 @@ public final class PlayerListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onChunkUnload(ChunkUnloadEvent event) {
         manager.handleChunkUnload(event.getChunk());
+    }
+
+    /** Opens a personally owned guard's detail screen without changing ordinary right-clicks. */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onSneakRightClickGuard(PlayerInteractEntityEvent event) {
+        if (event.getHand() != EquipmentSlot.HAND) {
+            return;
+        }
+        Player player = event.getPlayer();
+        if (!player.isSneaking() || !isEmptyHand(player.getInventory().getItemInMainHand())
+                || !isEmptyHand(player.getInventory().getItemInOffHand())) {
+            return;
+        }
+        Entity clicked = event.getRightClicked();
+        GuardData data = manager.getGuardData(clicked);
+        if (data == null || !player.getUniqueId().equals(data.getOwnerId())
+                || !player.hasPermission("bodyguard.use") || gui == null) {
+            return;
+        }
+
+        event.setCancelled(true);
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            if (player.isOnline()) {
+                gui.openDetails(player, data.getGuardId());
+            }
+        });
+    }
+
+    private boolean isEmptyHand(ItemStack stack) {
+        return stack == null || stack.getType().isAir();
     }
 }

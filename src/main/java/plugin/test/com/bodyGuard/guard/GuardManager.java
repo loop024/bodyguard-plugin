@@ -81,10 +81,11 @@ public final class GuardManager {
         }
         Location location = mob.getLocation();
         String ownerName = owner.getName();
-        String name = createDefaultName(ownerName, mob.getType());
+        int nameNumber = nextNameNumber(owner.getUniqueId(), mob.getType());
+        String name = createDefaultName(ownerName, mob.getType(), nameNumber);
         GuardData data = new GuardData(
                 mob.getUniqueId(), owner.getUniqueId(), mob.getType(), GuardMode.FOLLOW,
-                name, ownerName, null, location);
+                name, ownerName, null, location, nameNumber);
 
         saveOriginalSettings(mob);
         guards.put(data.getGuardId(), data);
@@ -128,15 +129,22 @@ public final class GuardManager {
         }
         String name = getString(pdc, keys.name());
         if (name == null || name.isBlank()) {
-            name = previous == null ? createDefaultName(ownerName, mob.getType()) : previous.getName();
+            name = previous == null
+                    ? createDefaultName(ownerName, mob.getType(), nextNameNumber(ownerId, mob.getType()))
+                    : previous.getName();
         }
+
+        Integer pdcNameNumber = pdc.get(keys.nameNumber(), PersistentDataType.INTEGER);
+        int nameNumber = previous != null ? previous.getNameNumber()
+                : pdcNameNumber == null ? 0 : Math.max(0, pdcNameNumber);
 
         Location anchor = previous == null ? readAnchorFromPdc(pdc) : previous.getAnchorLocation();
         if (anchor == null && mode != GuardMode.FOLLOW) {
             anchor = entity.getLocation();
         }
         GuardData data = new GuardData(
-                entityId, ownerId, mob.getType(), mode, name, ownerName, anchor, entity.getLocation());
+                entityId, ownerId, mob.getType(), mode, name, ownerName, anchor,
+                entity.getLocation(), nameNumber);
         guards.put(entityId, data);
 
         // The entity UUID is authoritative. This repairs an incomplete saved PDC entry.
@@ -323,6 +331,21 @@ public final class GuardManager {
         save();
     }
 
+    /** Renames exactly one currently loaded guard after rechecking owner and UUID. */
+    public boolean renameGuard(UUID ownerId, UUID guardId, String name) {
+        GuardData data = getGuardData(guardId);
+        if (data == null || ownerId == null || !ownerId.equals(data.getOwnerId())
+                || name == null || name.isBlank()) {
+            return false;
+        }
+        Mob mob = getLoadedMob(data);
+        if (mob == null || !owns(ownerId, mob)) {
+            return false;
+        }
+        rename(data, mob, name);
+        return true;
+    }
+
     public int teleportGuards(Player owner) {
         if (owner == null) {
             return 0;
@@ -330,21 +353,9 @@ public final class GuardManager {
         int teleported = 0;
         int position = 0;
         for (GuardData data : getGuards(owner.getUniqueId())) {
-            Mob guard = getLoadedMob(data);
-            if (guard == null) {
-                continue;
+            if (teleportGuard(owner.getUniqueId(), data.getGuardId(), position++)) {
+                teleported++;
             }
-            Location destination = LocationUtil.findSafeLocation(owner.getLocation(), position++);
-            if (destination == null || !guard.teleport(destination)) {
-                continue;
-            }
-            data.clearCombat();
-            guard.setTarget(null);
-            data.setLastLocation(destination);
-            if (data.getMode() != GuardMode.FOLLOW) {
-                data.setAnchorLocation(destination);
-            }
-            teleported++;
         }
         if (teleported > 0) {
             save();
@@ -367,12 +378,78 @@ public final class GuardManager {
                 continue;
             }
             double maximum = maxHealth.getValue();
-            if (guard.getHealth() < maximum) {
-                guard.setHealth(maximum);
+            if (guard.getHealth() >= maximum) {
+                continue;
             }
-            healed++;
+            try {
+                guard.setHealth(maximum);
+                if (guard.getHealth() >= maximum) {
+                    healed++;
+                }
+            } catch (IllegalArgumentException ignored) {
+                // The entity may have changed state during this synchronous operation.
+            }
         }
         return healed;
+    }
+
+    /** Returns 1 when health increased, 0 when already full, and -1 when unavailable. */
+    public int healGuard(UUID ownerId, UUID guardId) {
+        GuardData data = getGuardData(guardId);
+        if (data == null || ownerId == null || !ownerId.equals(data.getOwnerId())) {
+            return -1;
+        }
+        Mob guard = getLoadedMob(data);
+        if (guard == null) {
+            return -1;
+        }
+        AttributeInstance maxHealth = guard.getAttribute(Attribute.MAX_HEALTH);
+        if (maxHealth == null) {
+            return -1;
+        }
+        double maximum = maxHealth.getValue();
+        if (!Double.isFinite(maximum) || maximum <= 0.0 || guard.getHealth() >= maximum) {
+            return 0;
+        }
+        try {
+            guard.setHealth(maximum);
+            return guard.getHealth() > 0.0 && guard.getHealth() >= maximum ? 1 : -1;
+        } catch (IllegalArgumentException ignored) {
+            return -1;
+        }
+    }
+
+    /** Teleports exactly one loaded guard using the same safe-position rules as /bg tp. */
+    public boolean teleportGuard(UUID ownerId, UUID guardId) {
+        boolean moved = teleportGuard(ownerId, guardId,
+                guardId == null ? 0 : Math.floorMod(guardId.hashCode(), 13));
+        if (moved) {
+            save();
+        }
+        return moved;
+    }
+
+    private boolean teleportGuard(UUID ownerId, UUID guardId, int preferredIndex) {
+        GuardData data = getGuardData(guardId);
+        if (data == null || ownerId == null || !ownerId.equals(data.getOwnerId())) {
+            return false;
+        }
+        Player owner = Bukkit.getPlayer(ownerId);
+        Mob guard = getLoadedMob(data);
+        if (owner == null || !EntityUtil.isAlive(owner) || guard == null) {
+            return false;
+        }
+        Location destination = LocationUtil.findSafeLocation(owner.getLocation(), preferredIndex);
+        if (destination == null || !guard.teleport(destination)) {
+            return false;
+        }
+        data.clearCombat();
+        guard.setTarget(null);
+        data.setLastLocation(destination);
+        if (data.getMode() != GuardMode.FOLLOW) {
+            data.setAnchorLocation(destination);
+        }
+        return true;
     }
 
     public boolean releaseGuard(GuardData data, Mob mob) {
@@ -553,6 +630,7 @@ public final class GuardManager {
         pdc.set(keys.mobType(), PersistentDataType.STRING, data.getMobType().name());
         pdc.set(keys.mode(), PersistentDataType.STRING, data.getMode().commandName());
         pdc.set(keys.name(), PersistentDataType.STRING, data.getName());
+        pdc.set(keys.nameNumber(), PersistentDataType.INTEGER, data.getNameNumber());
 
         Location anchor = data.getAnchorLocation();
         if (anchor == null || anchor.getWorld() == null) {
@@ -611,6 +689,7 @@ public final class GuardManager {
         pdc.remove(keys.mobType());
         pdc.remove(keys.mode());
         pdc.remove(keys.name());
+        pdc.remove(keys.nameNumber());
         pdc.remove(keys.anchorWorld());
         pdc.remove(keys.anchorX());
         pdc.remove(keys.anchorY());
@@ -653,10 +732,22 @@ public final class GuardManager {
         return new Location(world, x, y, z);
     }
 
-    private String createDefaultName(String ownerName, EntityType type) {
+    private int nextNameNumber(UUID ownerId, EntityType type) {
+        int highest = 0;
+        for (GuardData data : getGuards(ownerId)) {
+            if (data.getMobType() == type) {
+                highest = Math.max(highest, data.getNameNumber());
+            }
+        }
+        return Math.max(1, highest + 1);
+    }
+
+    private String createDefaultName(String ownerName, EntityType type, int number) {
         return plugin.color(plugin.getDefaultNameTemplate()
                 .replace("{owner}", ownerName == null ? "Player" : ownerName)
-                .replace("{mob}", EntityUtil.prettyMobName(type)));
+                .replace("{mob}", EntityUtil.prettyMobName(type))
+                .replace("{mob_name}", plugin.getMobDisplayName(type))
+                .replace("{number}", String.format(java.util.Locale.ROOT, "%02d", Math.max(1, number))));
     }
 
     private boolean isMarked(PersistentDataContainer pdc) {

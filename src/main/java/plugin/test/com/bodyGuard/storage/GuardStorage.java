@@ -75,12 +75,13 @@ public final class GuardStorage {
             GuardMode mode = GuardMode.fromString(guards.getString(idText + ".mode", "follow"));
             String name = guards.getString(idText + ".name", "BodyGuard");
             String ownerName = guards.getString(idText + ".owner-name", "Player");
+            int nameNumber = Math.max(0, guards.getInt(idText + ".name-number", 0));
             Location anchor = readLocation(guards, idText + ".anchor-location");
             Location last = readLocation(guards, idText + ".last-location");
 
             try {
                 result.put(guardId, new GuardData(
-                        guardId, ownerId, mobType, mode, name, ownerName, anchor, last));
+                        guardId, ownerId, mobType, mode, name, ownerName, anchor, last, nameNumber));
             } catch (RuntimeException exception) {
                 plugin.getLogger().log(Level.WARNING,
                         "Ignoring malformed BodyGuard entry: " + idText, exception);
@@ -103,6 +104,7 @@ public final class GuardStorage {
             configuration.set(path + ".mob-type", data.getMobType().name());
             configuration.set(path + ".mode", data.getMode().commandName());
             configuration.set(path + ".name", data.getName());
+            configuration.set(path + ".name-number", data.getNameNumber());
             writeLocation(configuration, path + ".anchor-location", data.getAnchorLocation());
             writeLocation(configuration, path + ".last-location", data.getLastLocation());
         }

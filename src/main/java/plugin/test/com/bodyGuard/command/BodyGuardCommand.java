@@ -113,29 +113,35 @@ public final class BodyGuardCommand implements CommandExecutor {
         }
 
         EntityType type = plugin.parseEntityType(args[1]);
-        summonPlayer(player, type);
+        summonPlayer(player, type, true);
         return true;
     }
 
     /** Shared summon path used by both /bg summon and the inventory summon menu. */
     public boolean summonFromMenu(Player player, EntityType type) {
-        if (player == null || !requirePermission(player, "bodyguard.summon")) {
+        if (player == null || !hasPermission(player, "bodyguard.summon")) {
             return false;
         }
-        return summonPlayer(player, type);
+        return summonPlayer(player, type, false);
     }
 
-    private boolean summonPlayer(Player player, EntityType type) {
+    private boolean summonPlayer(Player player, EntityType type, boolean notify) {
         if (type == null || !plugin.isSupportedMobType(type)) {
-            messages.send(player, "invalid-mob");
+            if (notify) {
+                messages.send(player, "invalid-mob");
+            }
             return false;
         }
         if (!plugin.isAllowedMobType(type)) {
-            messages.send(player, "mob-not-allowed");
+            if (notify) {
+                messages.send(player, "mob-not-allowed");
+            }
             return false;
         }
         if (manager.countGuards(player.getUniqueId()) >= plugin.getMaxGuardsPerPlayer()) {
-            messages.send(player, "guard-limit", Map.of("limit", String.valueOf(plugin.getMaxGuardsPerPlayer())));
+            if (notify) {
+                messages.send(player, "guard-limit", Map.of("limit", String.valueOf(plugin.getMaxGuardsPerPlayer())));
+            }
             return false;
         }
 
@@ -146,28 +152,36 @@ public final class BodyGuardCommand implements CommandExecutor {
             Entity entity = world.spawnEntity(spawnLocation, type);
             if (!(entity instanceof Mob spawnedMob)) {
                 entity.remove();
-                messages.send(player, "spawn-failed");
+                if (notify) {
+                    messages.send(player, "spawn-failed");
+                }
                 return false;
             }
             mob = spawnedMob;
         } catch (RuntimeException exception) {
             plugin.getLogger().log(java.util.logging.Level.WARNING,
                     "Could not summon BodyGuard " + type, exception);
-            messages.send(player, "spawn-failed");
+            if (notify) {
+                messages.send(player, "spawn-failed");
+            }
             return false;
         }
 
         GuardData data = manager.registerGuard(mob, player);
         if (data == null) {
             mob.remove();
-            messages.send(player, "spawn-failed");
+            if (notify) {
+                messages.send(player, "spawn-failed");
+            }
             return false;
         }
         plugin.playGuardEffect(mob, true);
-        messages.send(player, "guard-created", Map.of(
-                "mob", mobName(data.getMobType()),
-                "name", data.getName()
-        ));
+        if (notify) {
+            messages.send(player, "guard-created", Map.of(
+                    "mob", mobName(data.getMobType()),
+                    "name", data.getName()
+            ));
+        }
         return true;
     }
 
@@ -477,7 +491,7 @@ public final class BodyGuardCommand implements CommandExecutor {
     }
 
     private boolean requirePermission(CommandSender sender, String permission) {
-        if (sender.hasPermission(permission) || sender.hasPermission("bodyguard.admin")) {
+        if (hasPermission(sender, permission)) {
             return true;
         }
         messages.send(sender, "no-permission");
@@ -486,5 +500,10 @@ public final class BodyGuardCommand implements CommandExecutor {
 
     private void usage(CommandSender sender, String usage) {
         messages.send(sender, "invalid-usage", Map.of("usage", usage));
+    }
+
+    private boolean hasPermission(CommandSender sender, String permission) {
+        return sender != null && (sender.hasPermission(permission)
+                || sender.hasPermission("bodyguard.admin"));
     }
 }

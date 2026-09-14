@@ -19,12 +19,19 @@ public final class GuardData {
     private String ownerName;
     private Location anchorLocation;
     private Location lastLocation;
+    private int nameNumber;
     private long combatUntilMillis;
     private UUID combatTargetId;
     private boolean offlineFrozen;
 
     public GuardData(UUID guardId, UUID ownerId, EntityType mobType, GuardMode mode,
                      String name, String ownerName, Location anchorLocation, Location lastLocation) {
+        this(guardId, ownerId, mobType, mode, name, ownerName, anchorLocation, lastLocation, 0);
+    }
+
+    public GuardData(UUID guardId, UUID ownerId, EntityType mobType, GuardMode mode,
+                     String name, String ownerName, Location anchorLocation, Location lastLocation,
+                     int nameNumber) {
         this.guardId = Objects.requireNonNull(guardId, "guardId");
         this.ownerId = Objects.requireNonNull(ownerId, "ownerId");
         this.mobType = Objects.requireNonNull(mobType, "mobType");
@@ -33,6 +40,7 @@ public final class GuardData {
         this.ownerName = ownerName == null ? "Player" : ownerName;
         this.anchorLocation = LocationUtil.copy(anchorLocation);
         this.lastLocation = LocationUtil.copy(lastLocation);
+        this.nameNumber = Math.max(0, nameNumber);
     }
 
     public UUID getGuardId() {
@@ -71,6 +79,14 @@ public final class GuardData {
         if (name != null && !name.isBlank()) {
             this.name = name;
         }
+    }
+
+    public int getNameNumber() {
+        return nameNumber;
+    }
+
+    public void setNameNumber(int nameNumber) {
+        this.nameNumber = Math.max(0, nameNumber);
     }
 
     public String getOwnerName() {

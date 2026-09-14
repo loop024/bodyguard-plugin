@@ -14,6 +14,7 @@ import org.bukkit.World;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Mob;
+import org.bukkit.entity.Player;
 import org.bukkit.event.HandlerList;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -114,6 +115,9 @@ public final class BodyGuard extends JavaPlugin {
             messages.reload();
         }
         allowedMobTypes = readAllowedMobTypes();
+        if (gui != null) {
+            gui.restartTasks();
+        }
     }
 
     private Set<EntityType> readAllowedMobTypes() {
@@ -268,7 +272,7 @@ public final class BodyGuard extends JavaPlugin {
     }
 
     public String getDefaultNameTemplate() {
-        return stringSetting("display.default-name", "{owner}'s {mob} Guard");
+        return stringSetting("display.default-name", "{mob_name}護衛 {number}");
     }
 
     public boolean effectsEnabled() {
@@ -277,6 +281,70 @@ public final class BodyGuard extends JavaPlugin {
 
     public boolean freezeOfflineGuards() {
         return getConfig().getBoolean("owner-offline.freeze-guards", true);
+    }
+
+    public boolean isGuiActionBarEnabled() {
+        return getConfig().getBoolean("display.action-bar.enabled", true);
+    }
+
+    public int getGuiRefreshIntervalTicks() {
+        return intSetting("display.gui-refresh-interval-ticks", 20, 0, 1200);
+    }
+
+    public int getActionBarIntervalTicks() {
+        return intSetting("display.action-bar.interval-ticks", 5, 0, 1200);
+    }
+
+    public double getActionBarRange() {
+        return doubleSetting("display.action-bar.range", 10.0, 1.0, 32.0);
+    }
+
+    public int getGuiResultDurationTicks() {
+        return intSetting("display.gui-result-seconds", 5, 1, 30) * 20;
+    }
+
+    public boolean guiSoundsEnabled() {
+        return getConfig().getBoolean("effects.gui-sounds.enabled", true);
+    }
+
+    public Sound guiSuccessSound() {
+        return soundSetting("effects.gui-sounds.success-sound", Sound.UI_BUTTON_CLICK);
+    }
+
+    public Sound guiFailureSound() {
+        return soundSetting("effects.gui-sounds.failure-sound", Sound.BLOCK_NOTE_BLOCK_BASS);
+    }
+
+    public float guiSoundVolume() {
+        return (float) doubleSetting("effects.gui-sounds.volume", 0.35, 0.0, 1.0);
+    }
+
+    public float guiSoundPitch(boolean success) {
+        return (float) doubleSetting(success
+                ? "effects.gui-sounds.success-pitch"
+                : "effects.gui-sounds.failure-pitch", success ? 1.25 : 0.75, 0.5, 2.0);
+    }
+
+    public void playGuiSound(Player player, boolean success) {
+        if (!guiSoundsEnabled() || player == null || !player.isOnline()) {
+            return;
+        }
+        try {
+            player.playSound(player.getLocation(), success ? guiSuccessSound() : guiFailureSound(),
+                    guiSoundVolume(), guiSoundPitch(success));
+        } catch (RuntimeException exception) {
+            getLogger().log(Level.FINE, "Could not play BodyGuard GUI sound", exception);
+        }
+    }
+
+    /** Japanese display name used only by the new-name template placeholder. */
+    public String getMobDisplayName(EntityType type) {
+        String fallback = EntityUtil.prettyMobName(type);
+        if (messages == null) {
+            return fallback;
+        }
+        String key = "mob-names." + (type == null ? "mob" : type.name().toLowerCase(Locale.ROOT));
+        return messages.color(messages.get(key, fallback));
     }
 
     public String color(String value) {
@@ -333,6 +401,18 @@ public final class BodyGuard extends JavaPlugin {
         return Double.isFinite(value) && value >= minimum && value <= maximum ? value : fallback;
     }
 
+    private Sound soundSetting(String path, Sound fallback) {
+        String value = getConfig().getString(path);
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        try {
+            return Sound.valueOf(value.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ignored) {
+            return fallback;
+        }
+    }
+
     private String stringSetting(String path, String fallback) {
         String value = getConfig().getString(path);
         return value == null || value.isBlank() ? fallback : value;
@@ -345,6 +425,7 @@ public final class BodyGuard extends JavaPlugin {
         private final org.bukkit.NamespacedKey mobType;
         private final org.bukkit.NamespacedKey mode;
         private final org.bukkit.NamespacedKey name;
+        private final org.bukkit.NamespacedKey nameNumber;
         private final org.bukkit.NamespacedKey anchorWorld;
         private final org.bukkit.NamespacedKey anchorX;
         private final org.bukkit.NamespacedKey anchorY;
@@ -362,6 +443,7 @@ public final class BodyGuard extends JavaPlugin {
             mobType = new org.bukkit.NamespacedKey(plugin, "mob_type");
             mode = new org.bukkit.NamespacedKey(plugin, "mode");
             name = new org.bukkit.NamespacedKey(plugin, "name");
+            nameNumber = new org.bukkit.NamespacedKey(plugin, "name_number");
             anchorWorld = new org.bukkit.NamespacedKey(plugin, "anchor_world");
             anchorX = new org.bukkit.NamespacedKey(plugin, "anchor_x");
             anchorY = new org.bukkit.NamespacedKey(plugin, "anchor_y");
@@ -379,6 +461,7 @@ public final class BodyGuard extends JavaPlugin {
         public org.bukkit.NamespacedKey mobType() { return mobType; }
         public org.bukkit.NamespacedKey mode() { return mode; }
         public org.bukkit.NamespacedKey name() { return name; }
+        public org.bukkit.NamespacedKey nameNumber() { return nameNumber; }
         public org.bukkit.NamespacedKey anchorWorld() { return anchorWorld; }
         public org.bukkit.NamespacedKey anchorX() { return anchorX; }
         public org.bukkit.NamespacedKey anchorY() { return anchorY; }
