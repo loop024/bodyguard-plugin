@@ -165,7 +165,7 @@ public final class BodyGuardCommand implements CommandExecutor {
         }
         plugin.playGuardEffect(mob, true);
         messages.send(player, "guard-created", Map.of(
-                "mob", EntityUtil.prettyMobName(data.getMobType()),
+                "mob", mobName(data.getMobType()),
                 "name", data.getName()
         ));
         return true;
@@ -214,7 +214,7 @@ public final class BodyGuardCommand implements CommandExecutor {
         }
         plugin.playGuardEffect(mob, true);
         messages.send(sender, "guard-created", Map.of(
-                "mob", EntityUtil.prettyMobName(data.getMobType()),
+                "mob", mobName(data.getMobType()),
                 "name", data.getName()
         ));
         return true;
@@ -306,7 +306,7 @@ public final class BodyGuardCommand implements CommandExecutor {
                     "&f{index}. {name} &7- {mob} / {mode} / {status}{health}", Map.of(
                     "index", String.valueOf(index + 1),
                     "name", data.getName(),
-                    "mob", EntityUtil.prettyMobName(data.getMobType()),
+                    "mob", mobName(data.getMobType()),
                     "mode", data.getMode().japaneseName(),
                     "status", status,
                     "health", healthText
@@ -444,6 +444,14 @@ public final class BodyGuardCommand implements CommandExecutor {
 
     private LivingEntity findLookedAt(Player player) {
         return EntityUtil.findLookedAtLivingEntity(player, 10.0);
+    }
+
+    private String mobName(EntityType type) {
+        String fallback = EntityUtil.prettyMobName(type);
+        String key = "mob-names." + (type == null
+                ? "mob"
+                : type.name().toLowerCase(java.util.Locale.ROOT));
+        return messages.color(messages.get(key, fallback));
     }
 
     private Location summonLocation(Player player) {

@@ -199,7 +199,7 @@ public final class BodyGuardGui implements Listener {
                 BodyGuardMenuHolder.MenuType.DETAIL, player.getUniqueId(), returnPage, guardId,
                 null, null, false);
         Inventory inventory = createInventory(holder, DETAIL_SIZE,
-                text("gui.detail-title", "&9護衛詳細") + " &8- " + plugin.color(data.getName()));
+                text("gui.detail-title", "&9護衛詳細"));
         fillInventory(inventory);
 
         List<String> detailLore = new ArrayList<>();
@@ -208,8 +208,10 @@ public final class BodyGuardGui implements Listener {
         detailLore.add(text("gui.detail-mode", "&7モード: &f{mode}",
                 Map.of("mode", data.getMode().japaneseName())));
         String health = mob == null ? null : EntityUtil.healthText(mob);
-        detailLore.add(health == null
+        detailLore.add(mob == null
                 ? text("gui.detail-health-unavailable", "&7HP: &f取得不可（未読み込み）")
+                : health == null
+                ? text("gui.detail-health-unknown", "&7HP: &f取得不可")
                 : text("gui.detail-health", "&7HP: &f{health}", Map.of("health", health)));
         detailLore.add(statusLine(player, mob));
         detailLore.add(" ");
@@ -300,7 +302,7 @@ public final class BodyGuardGui implements Listener {
                 ? text("gui.confirm-target-count", "&f対象: &e{count}体", Map.of("count", String.valueOf(targetCount)))
                 : text("gui.confirm-target-name", "&f対象: &e{name}", Map.of("name", plugin.color(targetName)));
         inventory.setItem(4, item(Material.BOOK,
-                text("gui.confirm-target", "&e解除対象") + "\n" + target,
+                text("gui.confirm-target", "&e解除対象"),
                 List.of(target,
                         text("gui.confirm-warning", "&c通常のMobに戻り、敵対する可能性があります。"))));
         inventory.setItem(13, item(Material.REDSTONE,
@@ -352,7 +354,7 @@ public final class BodyGuardGui implements Listener {
         }
     }
 
-    @EventHandler(priority = EventPriority.MONITOR)
+    @EventHandler(priority = EventPriority.NORMAL)
     public void onQuit(PlayerQuitEvent event) {
         if (event.getPlayer().getOpenInventory().getTopInventory().getHolder()
                 instanceof BodyGuardMenuHolder) {
@@ -558,10 +560,12 @@ public final class BodyGuardGui implements Listener {
         lore.add(text("gui.guard-mode", "&7モード: &f{mode}",
                 Map.of("mode", data.getMode().japaneseName())));
         String health = mob == null ? null : EntityUtil.healthText(mob);
-        if (health == null) {
+        if (mob == null) {
             lore.add(text("gui.guard-status-unloaded", "&7状態: &e未読み込み"));
         } else {
-            lore.add(text("gui.guard-health", "&7HP: &f{health}", Map.of("health", health)));
+            lore.add(health == null
+                    ? text("gui.guard-health-unknown", "&7HP: &f取得不可")
+                    : text("gui.guard-health", "&7HP: &f{health}", Map.of("health", health)));
             lore.add(statusLine(player, mob));
         }
         lore.add(" ");
