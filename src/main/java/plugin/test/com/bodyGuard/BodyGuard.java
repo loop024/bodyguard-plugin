@@ -70,11 +70,6 @@ public final class BodyGuard extends JavaPlugin {
         guardManager = new GuardManager(this, storage, keys);
         guardManager.load(storage.load());
 
-        getServer().getPluginManager().registerEvents(new CombatListener(this, guardManager), this);
-        getServer().getPluginManager().registerEvents(new TargetListener(guardManager), this);
-        getServer().getPluginManager().registerEvents(new GuardDeathListener(this, guardManager), this);
-        getServer().getPluginManager().registerEvents(new PlayerListener(guardManager), this);
-
         PluginCommand command = getCommand("bodyguard");
         if (command == null) {
             getLogger().severe("Command 'bodyguard' is missing from plugin.yml. BodyGuard was disabled.");
@@ -84,12 +79,18 @@ public final class BodyGuard extends JavaPlugin {
         BodyGuardCommand commandExecutor = new BodyGuardCommand(this, guardManager, messages);
         gui = new BodyGuardGui(this, guardManager, messages, commandExecutor);
         commandExecutor.setGui(gui);
+
+        getServer().getPluginManager().registerEvents(new CombatListener(this, guardManager), this);
+        getServer().getPluginManager().registerEvents(new TargetListener(guardManager), this);
+        getServer().getPluginManager().registerEvents(new GuardDeathListener(this, guardManager), this);
+        getServer().getPluginManager().registerEvents(new PlayerListener(this, guardManager, gui), this);
         getServer().getPluginManager().registerEvents(gui, this);
         command.setExecutor(commandExecutor);
         command.setTabCompleter(new BodyGuardTabCompleter(this));
 
         guardTask = new GuardTask(this, guardManager);
         guardTask.runTaskTimer(this, 20L, 10L);
+        gui.startTasks();
 
         getLogger().info("BodyGuard v1.0.0 enabled.");
     }
@@ -101,6 +102,9 @@ public final class BodyGuard extends JavaPlugin {
         }
         if (guardTask != null) {
             guardTask.cancel();
+        }
+        if (gui != null) {
+            gui.stopTasks();
         }
         if (guardManager != null) {
             guardManager.save();
