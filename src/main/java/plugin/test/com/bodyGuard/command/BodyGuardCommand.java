@@ -289,10 +289,27 @@ public final class BodyGuardCommand implements CommandExecutor {
         messages.send(sender, "list-header");
         for (int index = 0; index < guards.size(); index++) {
             GuardData data = guards.get(index);
-            messages.send(sender, "list-entry", Map.of(
+            Mob loadedMob = manager.getLoadedMob(data);
+            String health = loadedMob == null ? "" : EntityUtil.healthText(loadedMob);
+            String status;
+            if (loadedMob == null) {
+                status = messages.get("gui.guard-status-unloaded", "未読み込み");
+            } else if (!LocationUtil.sameWorld(player.getLocation(), loadedMob.getLocation())) {
+                status = messages.get("gui.guard-status-world", "別ワールド");
+            } else {
+                double distance = Math.sqrt(player.getLocation().distanceSquared(loadedMob.getLocation()));
+                status = messages.format(messages.get("gui.guard-distance", "距離: {distance}m"),
+                        Map.of("distance", String.format(java.util.Locale.ROOT, "%.1f", distance)));
+            }
+            String healthText = health == null ? "" : " &7/ HP &f" + health;
+            messages.send(sender, "list-entry-details",
+                    "&f{index}. {name} &7- {mob} / {mode} / {status}{health}", Map.of(
                     "index", String.valueOf(index + 1),
+                    "name", data.getName(),
                     "mob", EntityUtil.prettyMobName(data.getMobType()),
-                    "mode", data.getMode().displayName()
+                    "mode", data.getMode().japaneseName(),
+                    "status", status,
+                    "health", healthText
             ));
         }
         messages.send(sender, "list-total", Map.of("count", String.valueOf(guards.size())));

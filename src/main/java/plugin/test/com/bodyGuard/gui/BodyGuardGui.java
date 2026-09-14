@@ -123,10 +123,11 @@ public final class BodyGuardGui implements Listener {
     }
 
     private void openSummon(Player player, int requestedPage) {
-        if (!canUseMenu(player) || !hasPermission(player, "bodyguard.summon")) {
-            if (player != null && player.isOnline()) {
-                messages.send(player, "no-permission");
-            }
+        if (!canUseMenu(player)) {
+            return;
+        }
+        if (!hasPermission(player, "bodyguard.summon")) {
+            messages.send(player, "no-permission");
             return;
         }
         List<EntityType> types = summonableTypes();
@@ -241,7 +242,10 @@ public final class BodyGuardGui implements Listener {
     }
 
     private void openReleaseConfirmation(Player player, UUID guardId, int returnPage) {
-        if (!canUseMenu(player) || !hasPermission(player, "bodyguard.release")) {
+        if (!canUseMenu(player)) {
+            return;
+        }
+        if (!hasPermission(player, "bodyguard.release")) {
             messages.send(player, "no-permission");
             return;
         }
@@ -252,12 +256,21 @@ public final class BodyGuardGui implements Listener {
             transition(player, () -> openList(player, returnPage));
             return;
         }
+        if (manager.getLoadedMob(data) == null) {
+            messages.send(player, "gui-unloaded-action",
+                    "&eこの護衛は未読み込みのため操作できません。", Map.of());
+            transition(player, () -> openDetails(player, guardId, returnPage));
+            return;
+        }
         openReleaseConfirmation(player, List.of(guardId), false, returnPage,
                 data.getName(), 1);
     }
 
     private void openAllReleaseConfirmation(Player player, int returnPage) {
-        if (!canUseMenu(player) || !hasPermission(player, "bodyguard.releaseall")) {
+        if (!canUseMenu(player)) {
+            return;
+        }
+        if (!hasPermission(player, "bodyguard.releaseall")) {
             messages.send(player, "no-permission");
             return;
         }
@@ -574,12 +587,12 @@ public final class BodyGuardGui implements Listener {
                 : text("gui.click-mode", "&7クリックで変更");
         List<String> lore = List.of(modeDescription(mode), currentLabel);
         return item(current ? Material.LIME_DYE : Material.BLUE_DYE,
-                color + mode.japaneseName(), lore);
+                plugin.color(color + mode.japaneseName()), lore);
     }
 
     private String modeDescription(GuardMode mode) {
         return switch (mode) {
-            case FOLLOW -> text("gui.mode-follow", "&7所有者の近くへ付いてきます。\n");
+            case FOLLOW -> text("gui.mode-follow", "&7所有者の近くへ付いてきます。");
             case STAY -> text("gui.mode-stay", "&7その場で待機し、必要時に守ります。");
             case GUARD -> text("gui.mode-guard", "&7指定地点の周囲を警備します。");
         };
@@ -619,7 +632,8 @@ public final class BodyGuardGui implements Listener {
                                      String key, String fallbackName, String lore) {
         boolean allowed = hasPermission(player, permission);
         return item(allowed ? material : Material.GRAY_DYE,
-                allowed ? text(key, fallbackName) : ChatColor.GRAY + fallbackName,
+                allowed ? text(key, fallbackName)
+                        : ChatColor.GRAY + ChatColor.stripColor(plugin.color(fallbackName)),
                 List.of(lore, allowed ? text("gui.click-to-use", "&bクリックして実行")
                         : text("gui.permission-required", "&c権限がありません。")));
     }
@@ -627,7 +641,8 @@ public final class BodyGuardGui implements Listener {
     private ItemStack navigationItem(Material material, String key, String fallbackName,
                                      boolean enabled, String lore) {
         return item(enabled ? material : Material.GRAY_STAINED_GLASS_PANE,
-                enabled ? text(key, fallbackName) : ChatColor.DARK_GRAY + fallbackName,
+                enabled ? text(key, fallbackName)
+                        : ChatColor.DARK_GRAY + ChatColor.stripColor(plugin.color(fallbackName)),
                 List.of(lore));
     }
 

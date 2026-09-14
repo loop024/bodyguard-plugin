@@ -20,6 +20,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 import plugin.test.com.bodyGuard.command.BodyGuardCommand;
 import plugin.test.com.bodyGuard.command.BodyGuardTabCompleter;
+import plugin.test.com.bodyGuard.gui.BodyGuardGui;
 import plugin.test.com.bodyGuard.guard.GuardManager;
 import plugin.test.com.bodyGuard.guard.GuardTask;
 import plugin.test.com.bodyGuard.listener.CombatListener;
@@ -53,6 +54,7 @@ public final class BodyGuard extends JavaPlugin {
     private GuardManager guardManager;
     private Set<EntityType> allowedMobTypes = Collections.emptySet();
     private GuardTask guardTask;
+    private BodyGuardGui gui;
 
     @Override
     public void onEnable() {
@@ -78,7 +80,11 @@ public final class BodyGuard extends JavaPlugin {
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
-        command.setExecutor(new BodyGuardCommand(this, guardManager, messages));
+        BodyGuardCommand commandExecutor = new BodyGuardCommand(this, guardManager, messages);
+        gui = new BodyGuardGui(this, guardManager, messages, commandExecutor);
+        commandExecutor.setGui(gui);
+        getServer().getPluginManager().registerEvents(gui, this);
+        command.setExecutor(commandExecutor);
         command.setTabCompleter(new BodyGuardTabCompleter(this));
 
         guardTask = new GuardTask(this, guardManager);
@@ -89,6 +95,9 @@ public final class BodyGuard extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (gui != null) {
+            gui.closeAllMenus();
+        }
         if (guardTask != null) {
             guardTask.cancel();
         }
