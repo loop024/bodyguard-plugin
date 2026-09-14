@@ -12,6 +12,8 @@ import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.attribute.Attribute;
+import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Mob;
 import org.bukkit.entity.Player;
@@ -37,7 +39,8 @@ import plugin.test.com.bodyGuard.util.MessageUtil;
 /** Standard Bukkit inventory menus for browsing and operating owned guards. */
 public final class BodyGuardGui implements Listener {
 
-    private static final int CONTENT_SLOTS = 45;
+    private static final int CONTENT_START = 9;
+    private static final int CONTENT_SLOTS = 36;
     private static final int MAIN_SIZE = 54;
     private static final int DETAIL_SIZE = 27;
     private static final int PREVIOUS_SLOT = 45;
@@ -80,9 +83,10 @@ public final class BodyGuardGui implements Listener {
                 pageIds, null, false);
         Inventory inventory = createInventory(holder, MAIN_SIZE,
                 text("gui.list-title", "&9護衛一覧") + " &8(" + (page + 1) + "/" + pages + ")");
+        fillHeader(inventory, player, false);
 
         for (int index = start; index < end; index++) {
-            inventory.setItem(index - start, guardIcon(player, guards.get(index)));
+            inventory.setItem(CONTENT_START + index - start, guardIcon(player, guards.get(index)));
         }
         if (guards.isEmpty()) {
             inventory.setItem(22, item(Material.BOOK,
@@ -141,9 +145,10 @@ public final class BodyGuardGui implements Listener {
                 null, pageTypes, false);
         Inventory inventory = createInventory(holder, MAIN_SIZE,
                 text("gui.summon-title", "&9護衛を召喚") + " &8(" + (page + 1) + "/" + pages + ")");
+        fillHeader(inventory, player, true);
 
         for (int index = 0; index < pageTypes.size(); index++) {
-            inventory.setItem(index, summonIcon(pageTypes.get(index), player));
+            inventory.setItem(CONTENT_START + index, summonIcon(pageTypes.get(index), player));
         }
         if (types.isEmpty()) {
             inventory.setItem(22, item(Material.BARRIER,
@@ -152,10 +157,10 @@ public final class BodyGuardGui implements Listener {
         }
 
         fillBottom(inventory);
-        inventory.setItem(45, item(Material.ARROW,
+        inventory.setItem(46, item(Material.ARROW,
                 text("gui.back", "&b一覧に戻る"),
                 List.of(text("gui.back-lore", "&7護衛一覧に戻ります。"))));
-        inventory.setItem(46, navigationItem(
+        inventory.setItem(PREVIOUS_SLOT, navigationItem(
                 Material.ARROW, "gui.previous", "&b前のページ", page > 0,
                 text("gui.previous-lore", "&7前のページを表示します。")));
         inventory.setItem(47, item(Material.BOOK,
@@ -167,16 +172,16 @@ public final class BodyGuardGui implements Listener {
                         "count", String.valueOf(manager.countGuards(player.getUniqueId())),
                         "limit", String.valueOf(plugin.getMaxGuardsPerPlayer()))),
                 List.of(text("gui.count-lore", "&7上限に達すると召喚できません。"))));
-        inventory.setItem(49, item(Material.CLOCK,
+        inventory.setItem(50, item(Material.CLOCK,
                 text("gui.refresh", "&b更新"),
-                List.of(text("gui.refresh-lore", "&7召喚可能なMobを読み直します。"))));
-        inventory.setItem(50, navigationItem(
+                List.of(text("gui.summon-refresh-lore", "&7召喚可能なMobを読み直します。"))));
+        inventory.setItem(NEXT_SLOT, navigationItem(
                 Material.ARROW, "gui.next", "&b次のページ", page + 1 < pages,
                 text("gui.next-lore", "&7次のページを表示します。")));
         inventory.setItem(51, item(Material.BOOK,
                 text("gui.summon-guide", "&b召喚方法"),
                 List.of(text("gui.summon-guide-lore", "&7Mobをクリックすると召喚します。"))));
-        inventory.setItem(52, item(Material.BARRIER,
+        inventory.setItem(CLOSE_SLOT, item(Material.BARRIER,
                 text("gui.close", "&c閉じる"),
                 List.of(text("gui.close-lore", "&7メニューを閉じます。"))));
         player.openInventory(inventory);
@@ -214,14 +219,23 @@ public final class BodyGuardGui implements Listener {
                 ? text("gui.detail-health-unknown", "&7HP: &f取得不可")
                 : text("gui.detail-health", "&7HP: &f{health}", Map.of("health", health)));
         detailLore.add(statusLine(player, mob));
+        addHealthBar(detailLore, mob);
         detailLore.add(" ");
         detailLore.add(text("gui.rename-guide", "&7名前変更: &f/bg rename <名前>"));
-        inventory.setItem(4, item(Material.PLAYER_HEAD,
+        inventory.setItem(4, item(spawnEgg(data.getMobType()),
                 plugin.color(data.getName()), detailLore));
 
-        inventory.setItem(10, modeItem(data, GuardMode.FOLLOW));
-        inventory.setItem(13, modeItem(data, GuardMode.STAY));
-        inventory.setItem(16, modeItem(data, GuardMode.GUARD));
+        inventory.setItem(10, modeItem(player, data, mob, GuardMode.FOLLOW));
+        inventory.setItem(13, modeItem(player, data, mob, GuardMode.STAY));
+        inventory.setItem(16, modeItem(player, data, mob, GuardMode.GUARD));
+        inventory.setItem(18, item(Material.NAME_TAG,
+                text("gui.rename-title", "&b名前の変え方"),
+                List.of(text("gui.rename-step-1", "&7メニューを閉じ、変えたい護衛を見ます。"),
+                        text("gui.rename-guide", "&7名前変更: &f/bg rename <名前>"),
+                        text("gui.rename-step-2", "&7例: /bg rename まもる"))));
+        inventory.setItem(24, item(Material.CLOCK,
+                text("gui.refresh", "&b更新"),
+                List.of(text("gui.refresh-lore", "&7護衛の状態を読み直します。"))));
 
         boolean releaseEnabled = mob != null && hasPermission(player, "bodyguard.release");
         List<String> releaseLore = new ArrayList<>();
@@ -372,9 +386,10 @@ public final class BodyGuardGui implements Listener {
     }
 
     private void handleListClick(Player player, BodyGuardMenuHolder holder, int slot) {
-        if (slot < CONTENT_SLOTS) {
-            if (slot < holder.getGuardIds().size()) {
-                UUID guardId = holder.getGuardIds().get(slot);
+        if (slot < PREVIOUS_SLOT) {
+            int index = slot - CONTENT_START;
+            if (index >= 0 && index < holder.getGuardIds().size()) {
+                UUID guardId = holder.getGuardIds().get(index);
                 transition(player, () -> openDetails(player, guardId, holder.getPage()));
             }
             return;
@@ -417,9 +432,10 @@ public final class BodyGuardGui implements Listener {
     }
 
     private void handleSummonClick(Player player, BodyGuardMenuHolder holder, int slot) {
-        if (slot < CONTENT_SLOTS) {
-            if (slot < holder.getMobTypes().size()) {
-                EntityType type = holder.getMobTypes().get(slot);
+        if (slot < PREVIOUS_SLOT) {
+            int index = slot - CONTENT_START;
+            if (index >= 0 && index < holder.getMobTypes().size()) {
+                EntityType type = holder.getMobTypes().get(index);
                 boolean summoned = command.summonFromMenu(player, type);
                 transition(player, () -> {
                     if (summoned) {
@@ -432,11 +448,11 @@ public final class BodyGuardGui implements Listener {
             return;
         }
         switch (slot) {
-            case 45 -> transition(player, () -> openList(player, 0));
-            case 46 -> transition(player, () -> openSummon(player, holder.getPage() - 1));
-            case 49 -> transition(player, () -> openSummon(player, holder.getPage()));
-            case 50 -> transition(player, () -> openSummon(player, holder.getPage() + 1));
-            case 52 -> player.closeInventory();
+            case 46 -> transition(player, () -> openList(player, 0));
+            case PREVIOUS_SLOT -> transition(player, () -> openSummon(player, holder.getPage() - 1));
+            case 50 -> transition(player, () -> openSummon(player, holder.getPage()));
+            case NEXT_SLOT -> transition(player, () -> openSummon(player, holder.getPage() + 1));
+            case CLOSE_SLOT -> player.closeInventory();
             default -> {
                 // The filler and information slots intentionally do nothing.
             }
@@ -478,6 +494,7 @@ public final class BodyGuardGui implements Listener {
                 }
             }
             case 22 -> transition(player, () -> openList(player, holder.getPage()));
+            case 24 -> transition(player, () -> openDetails(player, holder.getGuardId(), holder.getPage()));
             case 26 -> player.closeInventory();
             default -> {
                 // The information item and filler slots intentionally do nothing.
@@ -504,7 +521,13 @@ public final class BodyGuardGui implements Listener {
             return;
         }
         if (slot == 15 || slot == 22) {
-            transition(player, () -> openList(player, holder.getPage()));
+            transition(player, () -> {
+                if (!holder.isReleaseAll() && ownedGuard(player, holder.getGuardId()) != null) {
+                    openDetails(player, holder.getGuardId(), holder.getPage());
+                } else {
+                    openList(player, holder.getPage());
+                }
+            });
             return;
         }
         if (slot == 26) {
@@ -571,6 +594,7 @@ public final class BodyGuardGui implements Listener {
                     ? text("gui.guard-health-unknown", "&7HP: &f取得不可")
                     : text("gui.guard-health", "&7HP: &f{health}", Map.of("health", health)));
             lore.add(statusLine(player, mob));
+            addHealthBar(lore, mob);
         }
         lore.add(" ");
         lore.add(text("gui.guard-click", "&bクリック: 詳細を開く"));
@@ -578,23 +602,45 @@ public final class BodyGuardGui implements Listener {
     }
 
     private ItemStack summonIcon(EntityType type, Player player) {
+        boolean full = manager.countGuards(player.getUniqueId()) >= plugin.getMaxGuardsPerPlayer();
         List<String> lore = new ArrayList<>();
         lore.add(text("gui.summon-mob", "&7Mob: &f{mob}", Map.of("mob", mobName(type))));
         lore.add(text("gui.summon-count", "&7現在: &f{count}/{limit}", Map.of(
                 "count", String.valueOf(manager.countGuards(player.getUniqueId())),
                 "limit", String.valueOf(plugin.getMaxGuardsPerPlayer()))));
         lore.add(" ");
-        lore.add(text("gui.summon-click", "&aクリック: このMobを召喚"));
-        return item(spawnEgg(type), mobName(type), lore);
+        lore.add(full ? text("gui.summon-full", "&c上限に達しているため召喚できません。")
+                : text("gui.summon-click", "&aクリック: このMobを召喚"));
+        return item(full ? Material.GRAY_DYE : spawnEgg(type),
+                (full ? ChatColor.GRAY : ChatColor.AQUA) + mobName(type), lore);
     }
 
-    private ItemStack modeItem(GuardData data, GuardMode mode) {
+    private ItemStack modeItem(Player player, GuardData data, Mob mob, GuardMode mode) {
         boolean current = data.getMode() == mode;
-        String color = current ? "&a" : "&b";
-        String currentLabel = current ? text("gui.current-mode", "&a現在のモード")
-                : text("gui.click-mode", "&7クリックで変更");
-        List<String> lore = List.of(modeDescription(mode), currentLabel);
-        return item(current ? Material.LIME_DYE : Material.BLUE_DYE,
+        boolean allowed = hasPermission(player, "bodyguard.mode");
+        boolean enabled = mob != null && allowed;
+        String color = !enabled ? "&7" : current ? "&a" : "&b";
+        List<String> lore = new ArrayList<>();
+        lore.add(modeDescription(mode));
+        lore.add(" ");
+        if (current) {
+            lore.add(text("gui.current-mode", "&a現在のモード"));
+        }
+        if (!allowed) {
+            lore.add(text("gui.permission-required", "&c権限がありません。"));
+        }
+        if (mob == null) {
+            lore.add(text("gui.unloaded-action", "&e未読み込みのため操作できません。"));
+        }
+        if (enabled && !current) {
+            lore.add(text("gui.click-mode", "&7クリックで変更"));
+        }
+        Material icon = switch (mode) {
+            case FOLLOW -> Material.LEAD;
+            case STAY -> Material.ANVIL;
+            case GUARD -> Material.SHIELD;
+        };
+        return item(!enabled ? Material.GRAY_DYE : current ? Material.LIME_DYE : icon,
                 plugin.color(color + mode.japaneseName()), lore);
     }
 
