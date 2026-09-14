@@ -39,8 +39,10 @@ display:
   show-name: true
   # New guards use {mob_name} and a per-owner/type {number}; old/custom templates remain valid.
   default-name: "{mob_name}護衛 {number}"
+  # GUI refreshes values in place. Set to 0 to disable automatic refresh.
   gui-refresh-interval-ticks: 20
   gui-result-seconds: 5
+  # The action bar only targets a visible, nearby guard owned by the player.
   action-bar:
     enabled: true
     interval-ticks: 5
@@ -48,6 +50,7 @@ display:
 
 effects:
   enabled: true
+  # GUI sounds are sent only to the player who used the GUI.
   gui-sounds:
     enabled: true
     success-sound: UI_BUTTON_CLICK

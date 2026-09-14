@@ -66,6 +66,7 @@ public final class BodyGuardGui implements Listener {
     private final Map<UUID, UiResult> results = new HashMap<>();
     private final Map<UUID, Long> resultTokens = new HashMap<>();
     private final Map<UUID, String> actionBarTexts = new HashMap<>();
+    private long resultSequence;
     private BukkitTask refreshTask;
     private BukkitTask actionBarTask;
 
@@ -589,7 +590,7 @@ public final class BodyGuardGui implements Listener {
                 }
                 showResult(player, "gui-recruit-guide-result",
                         "&b対象Mobを見て &f/bg recruit &bを実行します。成功すると護衛になります。",
-                        Map.of(), true);
+                        Map.of(), true, false);
                 return;
             }
             if (holder.getTotalGuardCount() > 0 && (slot == 22 || slot == 24)) {
@@ -866,6 +867,10 @@ public final class BodyGuardGui implements Listener {
         if (!(top instanceof AnvilInventory anvil)) {
             return;
         }
+        ItemStack result = anvil.getItem(2);
+        if (result == null || result.getType().isAir()) {
+            return;
+        }
         String rawName = anvil.getRenameText();
         if (rawName == null || rawName.isBlank()) {
             messages.send(player, "gui-rename-invalid",
@@ -1070,16 +1075,6 @@ public final class BodyGuardGui implements Listener {
         }
         return item(enabled ? spawnEgg(type) : Material.GRAY_DYE,
                 (enabled ? ChatColor.AQUA : ChatColor.GRAY) + mobName(type), lore);
-    }
-
-    private List<String> mobFeatures(EntityType type) {
-        String key = "mob-features." + (type == null ? "mob" : type.name().toLowerCase(Locale.ROOT));
-        List<String> configured = messages.getList(key);
-        if (configured == null || configured.isEmpty()) {
-            return List.of(text("gui.mob-feature-generic-1", "&7攻撃タイプ: &f通常AIに従う"),
-                    text("gui.mob-feature-generic-2", "&7特徴: &fこのMobの標準動作で攻撃します。"));
-        }
-        return configured.stream().map(messages::color).toList();
     }
 
     private ItemStack modeItem(Player player, GuardData data, Mob mob, GuardMode mode) {
@@ -1426,16 +1421,24 @@ public final class BodyGuardGui implements Listener {
 
     private void showResult(Player player, String key, String fallback,
                             Map<String, String> placeholders, boolean success) {
+        showResult(player, key, fallback, placeholders, success, true);
+    }
+
+    private void showResult(Player player, String key, String fallback,
+                            Map<String, String> placeholders, boolean success,
+                            boolean playSound) {
         if (player == null || !player.isOnline()) {
             return;
         }
         UUID id = player.getUniqueId();
-        long token = resultTokens.getOrDefault(id, 0L) + 1L;
+        long token = ++resultSequence;
         resultTokens.put(id, token);
         UiResult result = new UiResult(messages.format(messages.get(key, fallback), placeholders),
                 success, System.currentTimeMillis() + plugin.getGuiResultDurationTicks() * 50L);
         results.put(id, result);
-        plugin.playGuiSound(player, success);
+        if (playSound) {
+            plugin.playGuiSound(player, success);
+        }
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             if (resultTokens.getOrDefault(id, 0L) == token) {
                 results.remove(id);
@@ -1450,7 +1453,7 @@ public final class BodyGuardGui implements Listener {
             return;
         }
         UUID id = player.getUniqueId();
-        resultTokens.put(id, resultTokens.getOrDefault(id, 0L) + 1L);
+        resultTokens.put(id, ++resultSequence);
         results.remove(id);
     }
 
