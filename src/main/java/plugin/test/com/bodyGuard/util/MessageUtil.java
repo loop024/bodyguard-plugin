@@ -34,8 +34,19 @@ public final class MessageUtil {
         send(sender, key, Collections.emptyMap());
     }
 
+    /** Sends a message while retaining a bundled fallback for older message files. */
+    public void send(CommandSender sender, String key, String fallback) {
+        send(sender, key, fallback, Collections.emptyMap());
+    }
+
     public void send(CommandSender sender, String key, Map<String, String> placeholders) {
         sender.sendMessage(format(prefix() + get(key, key), placeholders));
+    }
+
+    /** Sends a message while retaining a bundled fallback for older message files. */
+    public void send(CommandSender sender, String key, String fallback,
+                     Map<String, String> placeholders) {
+        sender.sendMessage(format(prefix() + get(key, fallback), placeholders));
     }
 
     public void sendLines(CommandSender sender, String key, Map<String, String> placeholders) {

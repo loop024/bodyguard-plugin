@@ -165,6 +165,64 @@ public final class GuardManager {
         return isMarked(pdc) ? trackLoadedEntity(entity) : null;
     }
 
+    /** Finds registry data by the persistent Guard UUID without loading an entity. */
+    public GuardData getGuardData(UUID guardId) {
+        return guardId == null ? null : guards.get(guardId);
+    }
+
+    /** Changes a selected guard only when it is still owned by the caller and loaded. */
+    public boolean setMode(UUID ownerId, UUID guardId, GuardMode mode) {
+        GuardData data = getGuardData(guardId);
+        if (data == null || ownerId == null || !ownerId.equals(data.getOwnerId()) || mode == null) {
+            return false;
+        }
+        Mob mob = getLoadedMob(data);
+        if (mob == null || !owns(ownerId, mob)) {
+            return false;
+        }
+        setMode(data, mob, mode);
+        return true;
+    }
+
+    /** Releases one selected guard only when it is still owned by the caller and loaded. */
+    public boolean releaseGuard(UUID ownerId, UUID guardId) {
+        GuardData data = getGuardData(guardId);
+        if (data == null || ownerId == null || !ownerId.equals(data.getOwnerId())) {
+            return false;
+        }
+        Mob mob = getLoadedMob(data);
+        if (mob == null || !owns(ownerId, mob)) {
+            return false;
+        }
+        return releaseGuard(data, mob);
+    }
+
+    /**
+     * Releases exactly the UUID snapshot supplied by a GUI confirmation screen.
+     * It intentionally does not load chunks, and never includes guards added later.
+     */
+    public int releaseGuards(UUID ownerId, Collection<UUID> guardIds) {
+        if (ownerId == null || guardIds == null || guardIds.isEmpty()) {
+            return 0;
+        }
+        int released = 0;
+        for (UUID guardId : new ArrayList<>(guardIds)) {
+            GuardData data = getGuardData(guardId);
+            if (data == null || !ownerId.equals(data.getOwnerId())) {
+                continue;
+            }
+            Mob mob = getLoadedMob(data);
+            if (mob == null || !owns(ownerId, mob)) {
+                continue;
+            }
+            plugin.playGuardEffect(mob, false);
+            if (releaseGuard(data, mob)) {
+                released++;
+            }
+        }
+        return released;
+    }
+
     public UUID getOwner(Entity entity) {
         GuardData data = getGuardData(entity);
         return data == null ? null : data.getOwnerId();

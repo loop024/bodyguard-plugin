@@ -33,4 +33,13 @@ public enum GuardMode {
             case GUARD -> "guard（警備）";
         };
     }
+
+    /** Short Japanese label used by the player-facing inventory UI and list. */
+    public String japaneseName() {
+        return switch (this) {
+            case FOLLOW -> "追従";
+            case STAY -> "待機";
+            case GUARD -> "警備";
+        };
+    }
 }

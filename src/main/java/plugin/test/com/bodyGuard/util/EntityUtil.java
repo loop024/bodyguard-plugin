@@ -2,6 +2,8 @@ package plugin.test.com.bodyGuard.util;
 
 import org.bukkit.FluidCollisionMode;
 import org.bukkit.Location;
+import org.bukkit.attribute.Attribute;
+import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.LivingEntity;
@@ -87,5 +89,29 @@ public final class EntityUtil {
 
     public static boolean isAlive(Entity entity) {
         return entity != null && entity.isValid() && !entity.isDead();
+    }
+
+    /** Returns a compact current/max health string, or null when the API cannot provide it. */
+    public static String healthText(LivingEntity entity) {
+        if (entity == null || !isAlive(entity)) {
+            return null;
+        }
+        AttributeInstance maximumAttribute = entity.getAttribute(Attribute.MAX_HEALTH);
+        if (maximumAttribute == null) {
+            return null;
+        }
+        double current = entity.getHealth();
+        double maximum = maximumAttribute.getValue();
+        if (!Double.isFinite(current) || !Double.isFinite(maximum)) {
+            return null;
+        }
+        return formatNumber(current) + "/" + formatNumber(maximum);
+    }
+
+    private static String formatNumber(double value) {
+        if (Math.abs(value - Math.rint(value)) < 0.05) {
+            return String.valueOf((int) Math.rint(value));
+        }
+        return String.format(java.util.Locale.ROOT, "%.1f", value);
     }
 }
