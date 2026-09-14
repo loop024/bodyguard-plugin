@@ -3,16 +3,22 @@ setlocal
 
 cd /d "%~dp0"
 
-where mvn >nul 2>&1
-if errorlevel 1 (
-    echo Maven was not found in PATH.
-    echo Install Maven and add its bin directory to PATH, then run this file again.
+set "MAVEN_CMD="
+if defined MAVEN_HOME if exist "%MAVEN_HOME%\bin\mvn.cmd" set "MAVEN_CMD=%MAVEN_HOME%\bin\mvn.cmd"
+if not defined MAVEN_CMD (
+    for /f "delims=" %%M in ('where mvn 2^>nul') do if not defined MAVEN_CMD set "MAVEN_CMD=%%M"
+)
+
+if not defined MAVEN_CMD (
+    echo Maven was not found.
+    echo Install Maven and add its bin directory to PATH,
+    echo or set MAVEN_HOME to the Maven installation directory.
     pause
     exit /b 1
 )
 
 echo Building BodyGuard...
-call mvn clean package
+call "%MAVEN_CMD%" clean package
 if errorlevel 1 (
     echo.
     echo Build failed. Check the Maven output above.

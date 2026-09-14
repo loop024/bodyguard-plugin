@@ -122,6 +122,19 @@ cd /d C:\Users\USER\Documents\Plugin\BodyGuard
 build.bat
 ```
 
+`Maven was not found` と表示される場合は、Apache Mavenをインストールして新しいコマンドプロンプトを開き、次で確認してください。
+
+```bat
+mvn -version
+```
+
+PATHを変更したくない場合は、Mavenを展開したフォルダを `MAVEN_HOME` に設定してください。例えばMavenを `C:\Tools\apache-maven` に展開した場合は、コマンドプロンプトで次を実行してから `build.bat` を実行します。
+
+```bat
+set MAVEN_HOME=C:\Tools\apache-maven
+build.bat
+```
+
 同じ処理をMavenコマンドで直接実行する場合は次のとおりです。
 
 ```bat
