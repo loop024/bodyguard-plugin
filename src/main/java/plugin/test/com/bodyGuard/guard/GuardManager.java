@@ -294,9 +294,7 @@ public final class GuardManager {
                     || isForbiddenTarget(guard, target)) {
                 continue;
             }
-            guard.setTarget(target);
-            guard.setAware(true);
-            data.markCombat(plugin.getCombatGraceMillis());
+            assignCombatTarget(data, guard, target);
             commanded++;
         }
         return commanded;
@@ -307,6 +305,7 @@ public final class GuardManager {
             return;
         }
         data.setMode(mode);
+        data.clearCombat();
         data.setAnchorLocation(mode == GuardMode.FOLLOW ? null : mob.getLocation());
         mob.setTarget(null);
         mob.setAware(true);
@@ -339,6 +338,7 @@ public final class GuardManager {
             if (destination == null || !guard.teleport(destination)) {
                 continue;
             }
+            data.clearCombat();
             guard.setTarget(null);
             data.setLastLocation(destination);
             if (data.getMode() != GuardMode.FOLLOW) {
@@ -379,6 +379,7 @@ public final class GuardManager {
         if (data == null) {
             return false;
         }
+        data.clearCombat();
         if (mob != null) {
             restoreOriginalSettings(mob);
             clearPdc(mob);
@@ -477,6 +478,7 @@ public final class GuardManager {
             if (mob == null) {
                 continue;
             }
+            data.clearCombat();
             mob.setTarget(null);
             mob.setAware(false);
             data.setOfflineFrozen(true);
@@ -500,6 +502,37 @@ public final class GuardManager {
         if (mob != null && data != null) {
             configureGuard(mob, data);
         }
+    }
+
+    public void assignCombatTarget(GuardData data, Mob mob, LivingEntity target) {
+        data.setCombatTargetId(target.getUniqueId());
+        data.markCombat(plugin.getCombatGraceMillis());
+        mob.setAware(true);
+        mob.setTarget(target);
+        // Respect another plugin's cancellation or replacement of this command.
+        if (!target.equals(mob.getTarget())) {
+            data.clearCombat();
+        }
+    }
+
+    /** Only retain loaded, reachable-world targets within the configured pursuit range. */
+    public LivingEntity getCombatTarget(Mob mob, GuardData data) {
+        UUID targetId = data.getCombatTargetId();
+        if (targetId == null) {
+            return null;
+        }
+        Entity entity = Bukkit.getEntity(targetId);
+        if (!(entity instanceof LivingEntity target) || !EntityUtil.isAlive(target)
+                || isForbiddenTarget(mob, target)
+                || LocationUtil.distanceSquared(mob.getLocation(), target.getLocation())
+                > plugin.getTargetRange() * plugin.getTargetRange()
+                || (target instanceof Player player
+                    && (player.getGameMode() == org.bukkit.GameMode.CREATIVE
+                        || player.getGameMode() == org.bukkit.GameMode.SPECTATOR))) {
+            data.clearCombat();
+            return null;
+        }
+        return target;
     }
 
     private void configureGuard(Mob mob, GuardData data) {

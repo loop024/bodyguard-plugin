@@ -71,6 +71,16 @@ public final class GuardTask extends BukkitRunnable {
     }
 
     private LivingEntity validateCurrentTarget(Mob mob, GuardData data) {
+        java.util.UUID previousTargetId = data.getCombatTargetId();
+        LivingEntity commanded = manager.getCombatTarget(mob, data);
+        if (commanded != null) {
+            mob.setAware(true);
+            if (!commanded.equals(mob.getTarget())) {
+                manager.assignCombatTarget(data, mob, commanded);
+            }
+        } else if (previousTargetId != null) {
+            mob.setTarget(null);
+        }
         LivingEntity target = mob.getTarget();
         if (target == null || !EntityUtil.isAlive(target)) {
             if (target != null) {
@@ -84,6 +94,7 @@ public final class GuardTask extends BukkitRunnable {
             return null;
         }
         data.markCombat(plugin.getCombatGraceMillis());
+        mob.setAware(true);
         return target;
     }
 
@@ -166,8 +177,7 @@ public final class GuardTask extends BukkitRunnable {
 
         LivingEntity nearest = findNearestHostile(mob, anchor, plugin.getGuardRadius());
         if (nearest != null) {
-            mob.setTarget(nearest);
-            data.markCombat(plugin.getCombatGraceMillis());
+            manager.assignCombatTarget(data, mob, nearest);
             return;
         }
 
@@ -212,6 +222,7 @@ public final class GuardTask extends BukkitRunnable {
         if (destination == null || !mob.teleport(destination)) {
             return;
         }
+        data.clearCombat();
         mob.setTarget(null);
         data.setLastLocation(destination);
     }
@@ -222,11 +233,13 @@ public final class GuardTask extends BukkitRunnable {
         if (destination == null || !mob.teleport(destination)) {
             return;
         }
+        data.clearCombat();
         mob.setTarget(null);
         data.setLastLocation(destination);
     }
 
     private void freeze(Mob mob, GuardData data) {
+        data.clearCombat();
         mob.setTarget(null);
         mob.setAware(false);
         data.setOfflineFrozen(true);

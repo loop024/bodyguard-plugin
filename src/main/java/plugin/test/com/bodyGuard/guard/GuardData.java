@@ -20,6 +20,7 @@ public final class GuardData {
     private Location anchorLocation;
     private Location lastLocation;
     private long combatUntilMillis;
+    private UUID combatTargetId;
     private boolean offlineFrozen;
 
     public GuardData(UUID guardId, UUID ownerId, EntityType mobType, GuardMode mode,
@@ -105,6 +106,19 @@ public final class GuardData {
 
     public boolean isInCombat() {
         return System.currentTimeMillis() < combatUntilMillis;
+    }
+
+    public UUID getCombatTargetId() {
+        return combatTargetId;
+    }
+
+    public void setCombatTargetId(UUID targetId) {
+        combatTargetId = targetId;
+    }
+
+    public void clearCombat() {
+        combatTargetId = null;
+        combatUntilMillis = 0L;
     }
 
     public boolean isOfflineFrozen() {
