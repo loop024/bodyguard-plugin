@@ -330,7 +330,8 @@ public final class BodyGuardGui implements Listener {
                 text("gui.confirm-cancel", "&bキャンセル"),
                 List.of(text("gui.confirm-cancel-lore", "&7解除せずに戻ります。"))));
         inventory.setItem(22, item(Material.ARROW,
-                text("gui.back", "&b一覧に戻る"),
+                text(releaseAll ? "gui.back" : "gui.back-detail",
+                        releaseAll ? "&b一覧に戻る" : "&b護衛詳細に戻る"),
                 List.of(text("gui.confirm-cancel-lore", "&7解除せずに戻ります。"))));
         inventory.setItem(26, item(Material.BARRIER,
                 text("gui.close", "&c閉じる"),
@@ -696,8 +697,58 @@ public final class BodyGuardGui implements Listener {
                                      boolean enabled, String lore) {
         return item(enabled ? material : Material.GRAY_STAINED_GLASS_PANE,
                 enabled ? text(key, fallbackName)
-                        : ChatColor.DARK_GRAY + ChatColor.stripColor(plugin.color(fallbackName)),
-                List.of(lore));
+                        : ChatColor.DARK_GRAY + ChatColor.stripColor(text(key, fallbackName)),
+                List.of(enabled ? lore : text("gui.no-page", "&7この方向にページはありません。")));
+    }
+
+    private void fillHeader(Inventory inventory, Player player, boolean summon) {
+        ItemStack filler = item(Material.BLUE_STAINED_GLASS_PANE, " ", List.of());
+        for (int slot = 0; slot < CONTENT_START; slot++) {
+            inventory.setItem(slot, filler.clone());
+        }
+        int count = manager.countGuards(player.getUniqueId());
+        int limit = plugin.getMaxGuardsPerPlayer();
+        inventory.setItem(4, item(count >= limit ? Material.ORANGE_DYE : Material.CHEST,
+                text("gui.overview-title", "&b&lあなたの護衛 &f{count}/{limit}体",
+                        Map.of("count", String.valueOf(count), "limit", String.valueOf(limit))),
+                List.of(text("gui.remaining", "&7あと &f{remaining}体 &7召喚できます。",
+                                Map.of("remaining", String.valueOf(Math.max(0, limit - count)))),
+                        text("gui.snapshot-note", "&8表示は画面を開いた時点です。更新で最新に。"))));
+        inventory.setItem(0, item(Material.BOOK,
+                text("gui.guide-title", "&b&l操作ガイド"),
+                List.of(summon
+                                ? text("gui.summon-guide-lore", "&7Mobをクリックすると召喚します。")
+                                : text("gui.list-guide", "&7護衛をクリック → 詳細で行動を選択"),
+                        text("gui.toolbar-guide", "&7下段には移動・更新などの操作があります。"))));
+        inventory.setItem(8, item(Material.COMPASS,
+                text("gui.mode-guide-title", "&b行動モードの違い"),
+                List.of(text("gui.mode-guide-follow", "&f追従 &7: あなたと一緒に移動"),
+                        text("gui.mode-guide-stay", "&f待機 &7: その場で待ち、必要時に防衛"),
+                        text("gui.mode-guide-guard", "&f警備 &7: 拠点の周囲を警戒"))));
+    }
+
+    private void addHealthBar(List<String> lore, Mob mob) {
+        if (mob == null || !EntityUtil.isAlive(mob)) {
+            return;
+        }
+        AttributeInstance attribute = mob.getAttribute(Attribute.MAX_HEALTH);
+        if (attribute == null) {
+            return;
+        }
+        double maximum = attribute.getValue();
+        double health = mob.getHealth();
+        if (!Double.isFinite(maximum) || !Double.isFinite(health) || maximum <= 0) {
+            return;
+        }
+        double ratio = Math.max(0, Math.min(1, health / maximum));
+        int filled = (int) Math.ceil(ratio * 10);
+        String color = ratio <= 0.25 ? "&c" : ratio <= 0.5 ? "&e" : "&a";
+        lore.add(text("gui.health-bar", "&7体力 &8[{bar}&8] &f{percent}%", Map.of(
+                "bar", color + "|".repeat(filled) + "&8" + "|".repeat(10 - filled),
+                "percent", String.valueOf(Math.round(ratio * 100)))));
+        if (ratio <= 0.25) {
+            lore.add(text("gui.health-low", "&c体力が少なくなっています。一覧の「全員を回復」へ。"));
+        }
     }
 
     private void fillBottom(Inventory inventory) {
