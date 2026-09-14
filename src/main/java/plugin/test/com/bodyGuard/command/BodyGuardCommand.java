@@ -17,6 +17,7 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.util.Vector;
 
 import plugin.test.com.bodyGuard.BodyGuard;
+import plugin.test.com.bodyGuard.gui.BodyGuardGui;
 import plugin.test.com.bodyGuard.guard.GuardData;
 import plugin.test.com.bodyGuard.guard.GuardManager;
 import plugin.test.com.bodyGuard.guard.GuardMode;
@@ -30,11 +31,16 @@ public final class BodyGuardCommand implements CommandExecutor {
     private final BodyGuard plugin;
     private final GuardManager manager;
     private final MessageUtil messages;
+    private BodyGuardGui gui;
 
     public BodyGuardCommand(BodyGuard plugin, GuardManager manager, MessageUtil messages) {
         this.plugin = plugin;
         this.manager = manager;
         this.messages = messages;
+    }
+
+    public void setGui(BodyGuardGui gui) {
+        this.gui = gui;
     }
 
     @Override
@@ -44,7 +50,11 @@ public final class BodyGuardCommand implements CommandExecutor {
             return true;
         }
         if (args.length == 0) {
-            sendHelp(sender);
+            if (sender instanceof Player player && gui != null) {
+                gui.openList(player);
+            } else {
+                sendHelp(sender);
+            }
             return true;
         }
 
@@ -54,6 +64,7 @@ public final class BodyGuardCommand implements CommandExecutor {
                 sendHelp(sender);
                 yield true;
             }
+            case "menu" -> menu(sender, args);
             case "summon" -> summon(sender, args);
             case "recruit" -> recruit(sender, args);
             case "release" -> release(sender, args);
@@ -73,6 +84,19 @@ public final class BodyGuardCommand implements CommandExecutor {
 
     private void sendHelp(CommandSender sender) {
         messages.sendLines(sender, "help", Collections.emptyMap());
+        messages.send(sender, "help-menu", "&f/bg &7- 護衛一覧のGUIを開く");
+    }
+
+    private boolean menu(CommandSender sender, String[] args) {
+        if (args.length != 1) {
+            usage(sender, "/bg menu");
+            return true;
+        }
+        Player player = requirePlayer(sender);
+        if (player != null && gui != null) {
+            gui.openList(player);
+        }
+        return true;
     }
 
     private boolean summon(CommandSender sender, String[] args) {
@@ -89,17 +113,30 @@ public final class BodyGuardCommand implements CommandExecutor {
         }
 
         EntityType type = plugin.parseEntityType(args[1]);
+        summonPlayer(player, type);
+        return true;
+    }
+
+    /** Shared summon path used by both /bg summon and the inventory summon menu. */
+    public boolean summonFromMenu(Player player, EntityType type) {
+        if (player == null || !requirePermission(player, "bodyguard.summon")) {
+            return false;
+        }
+        return summonPlayer(player, type);
+    }
+
+    private boolean summonPlayer(Player player, EntityType type) {
         if (type == null || !plugin.isSupportedMobType(type)) {
-            messages.send(sender, "invalid-mob");
-            return true;
+            messages.send(player, "invalid-mob");
+            return false;
         }
         if (!plugin.isAllowedMobType(type)) {
-            messages.send(sender, "mob-not-allowed");
-            return true;
+            messages.send(player, "mob-not-allowed");
+            return false;
         }
         if (manager.countGuards(player.getUniqueId()) >= plugin.getMaxGuardsPerPlayer()) {
-            messages.send(sender, "guard-limit", Map.of("limit", String.valueOf(plugin.getMaxGuardsPerPlayer())));
-            return true;
+            messages.send(player, "guard-limit", Map.of("limit", String.valueOf(plugin.getMaxGuardsPerPlayer())));
+            return false;
         }
 
         Location spawnLocation = summonLocation(player);
@@ -109,25 +146,25 @@ public final class BodyGuardCommand implements CommandExecutor {
             Entity entity = world.spawnEntity(spawnLocation, type);
             if (!(entity instanceof Mob spawnedMob)) {
                 entity.remove();
-                messages.send(sender, "spawn-failed");
-                return true;
+                messages.send(player, "spawn-failed");
+                return false;
             }
             mob = spawnedMob;
         } catch (RuntimeException exception) {
             plugin.getLogger().log(java.util.logging.Level.WARNING,
                     "Could not summon BodyGuard " + type, exception);
-            messages.send(sender, "spawn-failed");
-            return true;
+            messages.send(player, "spawn-failed");
+            return false;
         }
 
         GuardData data = manager.registerGuard(mob, player);
         if (data == null) {
             mob.remove();
-            messages.send(sender, "spawn-failed");
-            return true;
+            messages.send(player, "spawn-failed");
+            return false;
         }
         plugin.playGuardEffect(mob, true);
-        messages.send(sender, "guard-created", Map.of(
+        messages.send(player, "guard-created", Map.of(
                 "mob", EntityUtil.prettyMobName(data.getMobType()),
                 "name", data.getName()
         ));
