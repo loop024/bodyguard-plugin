@@ -127,16 +127,18 @@ public final class GuardManager {
             Player owner = Bukkit.getPlayer(ownerId);
             ownerName = owner == null ? "Player" : owner.getName();
         }
-        String name = getString(pdc, keys.name());
-        if (name == null || name.isBlank()) {
-            name = previous == null
-                    ? createDefaultName(ownerName, mob.getType(), nextNameNumber(ownerId, mob.getType()))
-                    : previous.getName();
-        }
-
         Integer pdcNameNumber = pdc.get(keys.nameNumber(), PersistentDataType.INTEGER);
         int nameNumber = previous != null ? previous.getNameNumber()
                 : pdcNameNumber == null ? 0 : Math.max(0, pdcNameNumber);
+        String name = getString(pdc, keys.name());
+        if (name == null || name.isBlank()) {
+            if (previous != null) {
+                name = previous.getName();
+            } else {
+                nameNumber = nameNumber > 0 ? nameNumber : nextNameNumber(ownerId, mob.getType());
+                name = createDefaultName(ownerName, mob.getType(), nameNumber);
+            }
+        }
 
         Location anchor = previous == null ? readAnchorFromPdc(pdc) : previous.getAnchorLocation();
         if (anchor == null && mode != GuardMode.FOLLOW) {

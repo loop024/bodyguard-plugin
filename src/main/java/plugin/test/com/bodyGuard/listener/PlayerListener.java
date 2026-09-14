@@ -66,7 +66,8 @@ public final class PlayerListener implements Listener {
         Entity clicked = event.getRightClicked();
         GuardData data = manager.getGuardData(clicked);
         if (data == null || !player.getUniqueId().equals(data.getOwnerId())
-                || !player.hasPermission("bodyguard.use") || gui == null) {
+                || (!player.hasPermission("bodyguard.use")
+                    && !player.hasPermission("bodyguard.admin")) || gui == null) {
             return;
         }
 

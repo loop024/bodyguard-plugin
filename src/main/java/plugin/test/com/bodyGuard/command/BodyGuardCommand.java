@@ -45,7 +45,7 @@ public final class BodyGuardCommand implements CommandExecutor {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (!sender.hasPermission("bodyguard.use")) {
+        if (!hasPermission(sender, "bodyguard.use")) {
             messages.send(sender, "no-permission");
             return true;
         }
@@ -307,9 +307,12 @@ public final class BodyGuardCommand implements CommandExecutor {
             String health = loadedMob == null ? "" : EntityUtil.healthText(loadedMob);
             String status;
             if (loadedMob == null) {
-                status = messages.get("gui.guard-status-unloaded", "未読み込み");
+                status = messages.get("gui.guard-status-unknown", "状態を確認できません");
             } else if (!LocationUtil.sameWorld(player.getLocation(), loadedMob.getLocation())) {
-                status = messages.get("gui.guard-status-world", "別ワールド");
+                status = messages.format(messages.get("gui.guard-status-world",
+                                "別ワールドにいます: {world}"),
+                        Map.of("world", loadedMob.getWorld() == null
+                                ? "不明" : loadedMob.getWorld().getName()));
             } else {
                 double distance = Math.sqrt(player.getLocation().distanceSquared(loadedMob.getLocation()));
                 status = messages.format(messages.get("gui.guard-distance", "距離: {distance}m"),

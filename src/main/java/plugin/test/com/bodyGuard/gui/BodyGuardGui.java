@@ -30,6 +30,7 @@ import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.inventory.PrepareAnvilEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerSwapHandItemsEvent;
 import org.bukkit.inventory.AnvilInventory;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
@@ -81,6 +82,7 @@ public final class BodyGuardGui implements Listener {
     }
 
     public void restartTasks() {
+        clearActionBars();
         cancelTasks();
         results.clear();
         resultTokens.clear();
@@ -99,6 +101,7 @@ public final class BodyGuardGui implements Listener {
     }
 
     public void stopTasks() {
+        clearActionBars();
         cancelTasks();
         results.clear();
         resultTokens.clear();
@@ -444,6 +447,14 @@ public final class BodyGuardGui implements Listener {
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
+    public void onSwapHandItems(PlayerSwapHandItemsEvent event) {
+        if (event.getPlayer().getOpenInventory().getTopInventory().getHolder()
+                instanceof BodyGuardMenuHolder) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST)
     public void onPrepareAnvil(PrepareAnvilEvent event) {
         if (!(event.getView().getTopInventory().getHolder() instanceof BodyGuardMenuHolder holder)
                 || holder.getType() != BodyGuardMenuHolder.MenuType.NAME_INPUT) {
@@ -571,6 +582,11 @@ public final class BodyGuardGui implements Listener {
                 return;
             }
             if (holder.getTotalGuardCount() == 0 && slot == 24) {
+                if (!hasPermission(player, "bodyguard.recruit")) {
+                    showResult(player, "gui-no-permission",
+                            "&c野生のMobを仲間にする権限がありません。", Map.of(), false);
+                    return;
+                }
                 showResult(player, "gui-recruit-guide-result",
                         "&b対象Mobを見て &f/bg recruit &bを実行します。成功すると護衛になります。",
                         Map.of(), true);
@@ -888,7 +904,7 @@ public final class BodyGuardGui implements Listener {
         if (player == null || !player.isOnline()) {
             return false;
         }
-        if (player.hasPermission("bodyguard.use")) {
+        if (hasPermission(player, "bodyguard.use")) {
             return true;
         }
         messages.send(player, "no-permission");
@@ -1517,6 +1533,12 @@ public final class BodyGuardGui implements Listener {
         UUID id = player.getUniqueId();
         if (actionBarTexts.remove(id) != null) {
             sendActionBar(player, "");
+        }
+    }
+
+    private void clearActionBars() {
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            clearActionBar(player);
         }
     }
 
