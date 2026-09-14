@@ -696,7 +696,7 @@ public final class BodyGuardGui implements Listener {
                 return;
             }
             showResult(player, "gui-mode-changed", "&a{mode}に変更しました。",
-                    Map.of("mode", mode.japaneseName()), true);
+                    Map.of("name", plugin.color(data.getName()), "mode", mode.japaneseName()), true);
             transition(player, () -> openDetails(player, holder.getGuardId(), holder.getPage(),
                     holder.getFilter(), holder.getSort()));
             return;
@@ -1334,10 +1334,6 @@ public final class BodyGuardGui implements Listener {
                 Map.of("seconds", String.format(Locale.ROOT, "%.1f", ticks / 20.0)));
     }
 
-    private void addHealthBar(List<String> lore, Mob mob, boolean unused) {
-        addHealthBar(lore, mob);
-    }
-
     private void fillBottom(Inventory inventory) {
         ItemStack filler = item(Material.GRAY_STAINED_GLASS_PANE, " ", List.of());
         for (int slot = 45; slot < inventory.getSize(); slot++) {
@@ -1566,4 +1562,3 @@ public final class BodyGuardGui implements Listener {
     private record UiResult(String message, boolean success, long expiresAtMillis) {
     }
 }
-
