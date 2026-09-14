@@ -1,0 +1,60 @@
+# BodyGuard 1.0.0 default configuration
+general:
+  language: ja
+
+limits:
+  max-guards-per-player: 10
+
+follow:
+  start-distance: 5.0
+  teleport-distance: 30.0
+  move-speed: 0.32
+
+teleport:
+  different-world: true
+  max-distance: 30.0
+
+combat:
+  defend-against-players: true
+  assist-owner-attacks: true
+  defend-owner: true
+  target-range: 25.0
+  combat-grace-seconds: 8.0
+
+friendly-fire:
+  owner-can-damage-guards: false
+  guards-can-damage-owner: false
+  guards-can-damage-each-other: false
+
+stay-mode:
+  defend-owner: true
+  return-to-position: true
+  return-distance: 24.0
+
+guard-mode:
+  radius: 15.0
+  return-distance: 30.0
+
+display:
+  show-name: true
+  default-name: "{owner}'s {mob} Guard"
+
+effects:
+  enabled: true
+
+owner-offline:
+  freeze-guards: true
+
+allowed-mobs:
+  - ZOMBIE
+  - SKELETON
+  - HUSK
+  - STRAY
+  - DROWNED
+  - BOGGED
+  - WITHER_SKELETON
+  - ZOMBIFIED_PIGLIN
+  - SPIDER
+  - CAVE_SPIDER
+  - PILLAGER
+  - VINDICATOR

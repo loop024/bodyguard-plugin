@@ -1,0 +1,8 @@
+target/
+.idea/
+*.iml
+logs/
+*.class
+
+# GitHub Backup Manager state
+.github_backup/

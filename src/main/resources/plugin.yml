@@ -1,0 +1,49 @@
+name: BodyGuard
+version: '1.0.0'
+main: plugin.test.com.bodyGuard.BodyGuard
+api-version: '1.21'
+author: Haruki
+description: Hostile mobs become player bodyguards.
+
+commands:
+  bodyguard:
+    aliases:
+      - bg
+    description: BodyGuard main command
+    usage: /bodyguard help
+    permission: bodyguard.use
+
+permissions:
+  bodyguard.use:
+    description: Allows use of the BodyGuard command
+    default: true
+  bodyguard.summon:
+    description: Allows summoning a BodyGuard
+    default: true
+  bodyguard.recruit:
+    description: Allows recruiting an existing mob
+    default: true
+  bodyguard.release:
+    description: Allows releasing a BodyGuard
+    default: true
+  bodyguard.releaseall:
+    description: Allows releasing all owned BodyGuards
+    default: true
+  bodyguard.mode:
+    description: Allows changing BodyGuard modes
+    default: true
+  bodyguard.rename:
+    description: Allows renaming a BodyGuard
+    default: true
+  bodyguard.teleport:
+    description: Allows teleporting owned BodyGuards
+    default: true
+  bodyguard.heal:
+    description: Allows healing owned BodyGuards
+    default: true
+  bodyguard.admin:
+    description: Allows administrative BodyGuard commands
+    default: op
+  bodyguard.reload:
+    description: Allows reloading BodyGuard configuration
+    default: op

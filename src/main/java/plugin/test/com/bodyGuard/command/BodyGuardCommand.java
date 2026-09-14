@@ -1,0 +1,428 @@
+package plugin.test.com.bodyGuard.command;
+
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Map;
+
+import org.bukkit.Location;
+import org.bukkit.World;
+import org.bukkit.entity.Entity;
+import org.bukkit.entity.EntityType;
+import org.bukkit.entity.LivingEntity;
+import org.bukkit.entity.Mob;
+import org.bukkit.entity.Player;
+import org.bukkit.command.Command;
+import org.bukkit.command.CommandExecutor;
+import org.bukkit.command.CommandSender;
+import org.bukkit.util.Vector;
+
+import plugin.test.com.bodyGuard.BodyGuard;
+import plugin.test.com.bodyGuard.guard.GuardData;
+import plugin.test.com.bodyGuard.guard.GuardManager;
+import plugin.test.com.bodyGuard.guard.GuardMode;
+import plugin.test.com.bodyGuard.util.EntityUtil;
+import plugin.test.com.bodyGuard.util.LocationUtil;
+import plugin.test.com.bodyGuard.util.MessageUtil;
+
+/** Main /bodyguard (/bg) command implementation. */
+public final class BodyGuardCommand implements CommandExecutor {
+
+    private final BodyGuard plugin;
+    private final GuardManager manager;
+    private final MessageUtil messages;
+
+    public BodyGuardCommand(BodyGuard plugin, GuardManager manager, MessageUtil messages) {
+        this.plugin = plugin;
+        this.manager = manager;
+        this.messages = messages;
+    }
+
+    @Override
+    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        if (!sender.hasPermission("bodyguard.use")) {
+            messages.send(sender, "no-permission");
+            return true;
+        }
+        if (args.length == 0) {
+            sendHelp(sender);
+            return true;
+        }
+
+        String subcommand = args[0].toLowerCase(java.util.Locale.ROOT);
+        return switch (subcommand) {
+            case "help" -> {
+                sendHelp(sender);
+                yield true;
+            }
+            case "summon" -> summon(sender, args);
+            case "recruit" -> recruit(sender, args);
+            case "release" -> release(sender, args);
+            case "releaseall" -> releaseAll(sender, args);
+            case "list" -> list(sender, args);
+            case "tp" -> teleport(sender, args);
+            case "mode" -> mode(sender, args);
+            case "rename" -> rename(sender, args);
+            case "heal" -> heal(sender, args);
+            case "reload" -> reload(sender, args);
+            default -> {
+                messages.send(sender, "unknown-command");
+                yield true;
+            }
+        };
+    }
+
+    private void sendHelp(CommandSender sender) {
+        messages.sendLines(sender, "help", Collections.emptyMap());
+    }
+
+    private boolean summon(CommandSender sender, String[] args) {
+        if (!requirePermission(sender, "bodyguard.summon")) {
+            return true;
+        }
+        Player player = requirePlayer(sender);
+        if (player == null) {
+            return true;
+        }
+        if (args.length != 2) {
+            usage(sender, "/bg summon <mob>");
+            return true;
+        }
+
+        EntityType type = plugin.parseEntityType(args[1]);
+        if (type == null || !plugin.isSupportedMobType(type)) {
+            messages.send(sender, "invalid-mob");
+            return true;
+        }
+        if (!plugin.isAllowedMobType(type)) {
+            messages.send(sender, "mob-not-allowed");
+            return true;
+        }
+        if (manager.countGuards(player.getUniqueId()) >= plugin.getMaxGuardsPerPlayer()) {
+            messages.send(sender, "guard-limit", Map.of("limit", String.valueOf(plugin.getMaxGuardsPerPlayer())));
+            return true;
+        }
+
+        Location spawnLocation = summonLocation(player);
+        World world = player.getWorld();
+        Mob mob;
+        try {
+            Entity entity = world.spawnEntity(spawnLocation, type);
+            if (!(entity instanceof Mob spawnedMob)) {
+                entity.remove();
+                messages.send(sender, "spawn-failed");
+                return true;
+            }
+            mob = spawnedMob;
+        } catch (RuntimeException exception) {
+            plugin.getLogger().log(java.util.logging.Level.WARNING,
+                    "Could not summon BodyGuard " + type, exception);
+            messages.send(sender, "spawn-failed");
+            return true;
+        }
+
+        GuardData data = manager.registerGuard(mob, player);
+        if (data == null) {
+            mob.remove();
+            messages.send(sender, "spawn-failed");
+            return true;
+        }
+        plugin.playGuardEffect(mob, true);
+        messages.send(sender, "guard-created", Map.of(
+                "mob", EntityUtil.prettyMobName(data.getMobType()),
+                "name", data.getName()
+        ));
+        return true;
+    }
+
+    private boolean recruit(CommandSender sender, String[] args) {
+        if (!requirePermission(sender, "bodyguard.recruit")) {
+            return true;
+        }
+        Player player = requirePlayer(sender);
+        if (player == null) {
+            return true;
+        }
+        if (args.length != 1) {
+            usage(sender, "/bg recruit");
+            return true;
+        }
+
+        LivingEntity target = findLookedAt(player);
+        if (!(target instanceof Mob mob)) {
+            messages.send(sender, "not-looking-at-mob");
+            return true;
+        }
+        GuardData existing = manager.getGuardData(mob);
+        if (existing != null) {
+            if (player.getUniqueId().equals(existing.getOwnerId())) {
+                messages.send(sender, "already-your-guard");
+            } else {
+                messages.send(sender, "already-owned");
+            }
+            return true;
+        }
+        if (!plugin.isAllowedMobType(mob.getType())) {
+            messages.send(sender, "mob-not-allowed");
+            return true;
+        }
+        if (manager.countGuards(player.getUniqueId()) >= plugin.getMaxGuardsPerPlayer()) {
+            messages.send(sender, "guard-limit", Map.of("limit", String.valueOf(plugin.getMaxGuardsPerPlayer())));
+            return true;
+        }
+
+        GuardData data = manager.registerGuard(mob, player);
+        if (data == null) {
+            messages.send(sender, "spawn-failed");
+            return true;
+        }
+        plugin.playGuardEffect(mob, true);
+        messages.send(sender, "guard-created", Map.of(
+                "mob", EntityUtil.prettyMobName(data.getMobType()),
+                "name", data.getName()
+        ));
+        return true;
+    }
+
+    private boolean release(CommandSender sender, String[] args) {
+        if (!requirePermission(sender, "bodyguard.release")) {
+            return true;
+        }
+        Player player = requirePlayer(sender);
+        if (player == null) {
+            return true;
+        }
+        if (args.length != 1) {
+            usage(sender, "/bg release");
+            return true;
+        }
+
+        LivingEntity target = findLookedAt(player);
+        GuardData data = target == null ? null : manager.getGuardData(target);
+        if (data == null) {
+            messages.send(sender, "not-looking-at-mob");
+            return true;
+        }
+        if (!player.getUniqueId().equals(data.getOwnerId())) {
+            messages.send(sender, "not-your-guard");
+            return true;
+        }
+        if (!(target instanceof Mob mob) || !manager.releaseGuard(data, mob)) {
+            messages.send(sender, "not-looking-at-mob");
+            return true;
+        }
+        plugin.playGuardEffect(mob, false);
+        messages.send(sender, "guard-released");
+        return true;
+    }
+
+    private boolean releaseAll(CommandSender sender, String[] args) {
+        if (!requirePermission(sender, "bodyguard.releaseall")) {
+            return true;
+        }
+        Player player = requirePlayer(sender);
+        if (player == null) {
+            return true;
+        }
+        if (args.length != 2 || !args[1].equalsIgnoreCase("confirm")) {
+            messages.send(sender, "releaseall-confirm");
+            return true;
+        }
+        int released = manager.releaseAll(player.getUniqueId());
+        messages.send(sender, "released-all", Map.of("count", String.valueOf(released)));
+        return true;
+    }
+
+    private boolean list(CommandSender sender, String[] args) {
+        if (!requirePermission(sender, "bodyguard.use")) {
+            return true;
+        }
+        Player player = requirePlayer(sender);
+        if (player == null) {
+            return true;
+        }
+        if (args.length != 1) {
+            usage(sender, "/bg list");
+            return true;
+        }
+        java.util.List<GuardData> guards = manager.getGuards(player.getUniqueId());
+        if (guards.isEmpty()) {
+            messages.send(sender, "no-guards");
+            return true;
+        }
+        messages.send(sender, "list-header");
+        for (int index = 0; index < guards.size(); index++) {
+            GuardData data = guards.get(index);
+            messages.send(sender, "list-entry", Map.of(
+                    "index", String.valueOf(index + 1),
+                    "mob", EntityUtil.prettyMobName(data.getMobType()),
+                    "mode", data.getMode().displayName()
+            ));
+        }
+        messages.send(sender, "list-total", Map.of("count", String.valueOf(guards.size())));
+        return true;
+    }
+
+    private boolean teleport(CommandSender sender, String[] args) {
+        if (!requirePermission(sender, "bodyguard.teleport")) {
+            return true;
+        }
+        Player player = requirePlayer(sender);
+        if (player == null) {
+            return true;
+        }
+        if (args.length != 1) {
+            usage(sender, "/bg tp");
+            return true;
+        }
+        int count = manager.teleportGuards(player);
+        messages.send(sender, count == 0 ? "nothing-teleported" : "teleported",
+                Map.of("count", String.valueOf(count)));
+        return true;
+    }
+
+    private boolean mode(CommandSender sender, String[] args) {
+        if (!requirePermission(sender, "bodyguard.mode")) {
+            return true;
+        }
+        Player player = requirePlayer(sender);
+        if (player == null) {
+            return true;
+        }
+        if (args.length != 2) {
+            usage(sender, "/bg mode <follow|stay|guard>");
+            return true;
+        }
+        GuardMode mode = GuardMode.fromString(args[1]);
+        if (mode == null) {
+            messages.send(sender, "invalid-mode");
+            return true;
+        }
+        LivingEntity target = findLookedAt(player);
+        GuardData data = target == null ? null : manager.getGuardData(target);
+        if (data == null) {
+            messages.send(sender, "not-looking-at-mob");
+            return true;
+        }
+        if (!player.getUniqueId().equals(data.getOwnerId())) {
+            messages.send(sender, "not-your-guard");
+            return true;
+        }
+        if (!(target instanceof Mob mob)) {
+            messages.send(sender, "not-looking-at-mob");
+            return true;
+        }
+        manager.setMode(data, mob, mode);
+        messages.send(sender, "mode-changed", Map.of(
+                "name", data.getName(),
+                "mode", mode.displayName()
+        ));
+        return true;
+    }
+
+    private boolean rename(CommandSender sender, String[] args) {
+        if (!requirePermission(sender, "bodyguard.rename")) {
+            return true;
+        }
+        Player player = requirePlayer(sender);
+        if (player == null) {
+            return true;
+        }
+        if (args.length < 2) {
+            usage(sender, "/bg rename <名前>");
+            return true;
+        }
+        String name = String.join(" ", Arrays.copyOfRange(args, 1, args.length));
+        if (name.isBlank() || name.length() > 64) {
+            messages.send(sender, "invalid-name");
+            return true;
+        }
+        LivingEntity target = findLookedAt(player);
+        GuardData data = target == null ? null : manager.getGuardData(target);
+        if (data == null) {
+            messages.send(sender, "not-looking-at-mob");
+            return true;
+        }
+        if (!player.getUniqueId().equals(data.getOwnerId())) {
+            messages.send(sender, "not-your-guard");
+            return true;
+        }
+        if (!(target instanceof Mob mob)) {
+            messages.send(sender, "not-looking-at-mob");
+            return true;
+        }
+        String coloredName = plugin.color(name);
+        manager.rename(data, mob, coloredName);
+        messages.send(sender, "renamed", Map.of("name", coloredName));
+        return true;
+    }
+
+    private boolean heal(CommandSender sender, String[] args) {
+        if (!requirePermission(sender, "bodyguard.heal")) {
+            return true;
+        }
+        Player player = requirePlayer(sender);
+        if (player == null) {
+            return true;
+        }
+        if (args.length != 1) {
+            usage(sender, "/bg heal");
+            return true;
+        }
+        int count = manager.healGuards(player);
+        messages.send(sender, count == 0 ? "nothing-healed" : "healed",
+                Map.of("count", String.valueOf(count)));
+        return true;
+    }
+
+    private boolean reload(CommandSender sender, String[] args) {
+        if (args.length != 1) {
+            usage(sender, "/bg reload");
+            return true;
+        }
+        if (!sender.hasPermission("bodyguard.reload") && !sender.hasPermission("bodyguard.admin")) {
+            messages.send(sender, "no-permission");
+            return true;
+        }
+        plugin.reloadSettings();
+        messages.send(sender, "config-reloaded");
+        return true;
+    }
+
+    private LivingEntity findLookedAt(Player player) {
+        return EntityUtil.findLookedAtLivingEntity(player, 10.0);
+    }
+
+    private Location summonLocation(Player player) {
+        Location base = player.getLocation().clone();
+        Vector direction = base.getDirection();
+        direction.setY(0.0);
+        if (direction.lengthSquared() < 0.000001) {
+            direction = new Vector(0.0, 0.0, 1.0);
+        } else {
+            direction.normalize();
+        }
+        Location requested = base.add(direction.multiply(2.5));
+        Location safe = LocationUtil.findSafeLocation(requested, 0);
+        return safe == null ? requested : safe;
+    }
+
+    private Player requirePlayer(CommandSender sender) {
+        if (sender instanceof Player player) {
+            return player;
+        }
+        messages.send(sender, "player-only");
+        return null;
+    }
+
+    private boolean requirePermission(CommandSender sender, String permission) {
+        if (sender.hasPermission(permission) || sender.hasPermission("bodyguard.admin")) {
+            return true;
+        }
+        messages.send(sender, "no-permission");
+        return false;
+    }
+
+    private void usage(CommandSender sender, String usage) {
+        messages.send(sender, "invalid-usage", Map.of("usage", usage));
+    }
+}

@@ -1,0 +1,590 @@
+package plugin.test.com.bodyGuard.guard;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.logging.Level;
+
+import org.bukkit.Bukkit;
+import org.bukkit.Location;
+import org.bukkit.NamespacedKey;
+import org.bukkit.World;
+import org.bukkit.attribute.Attribute;
+import org.bukkit.attribute.AttributeInstance;
+import org.bukkit.Chunk;
+import org.bukkit.entity.Entity;
+import org.bukkit.entity.EntityType;
+import org.bukkit.entity.LivingEntity;
+import org.bukkit.entity.Mob;
+import org.bukkit.entity.Player;
+import org.bukkit.persistence.PersistentDataContainer;
+import org.bukkit.persistence.PersistentDataType;
+
+import plugin.test.com.bodyGuard.BodyGuard;
+import plugin.test.com.bodyGuard.BodyGuard.NamespacedKeys;
+import plugin.test.com.bodyGuard.storage.GuardStorage;
+import plugin.test.com.bodyGuard.util.EntityUtil;
+import plugin.test.com.bodyGuard.util.LocationUtil;
+
+/** Owns the registry and all BodyGuard metadata operations. */
+public final class GuardManager {
+
+    private final BodyGuard plugin;
+    private final GuardStorage storage;
+    private final NamespacedKeys keys;
+    private final Map<UUID, GuardData> guards = new LinkedHashMap<>();
+
+    public GuardManager(BodyGuard plugin, GuardStorage storage, NamespacedKeys keys) {
+        this.plugin = plugin;
+        this.storage = storage;
+        this.keys = keys;
+    }
+
+    public void load(Map<UUID, GuardData> savedGuards) {
+        guards.clear();
+        if (savedGuards != null) {
+            guards.putAll(savedGuards);
+        }
+    }
+
+    public void save() {
+        storage.save(new ArrayList<>(guards.values()));
+    }
+
+    public Collection<GuardData> getAllGuardData() {
+        return new ArrayList<>(guards.values());
+    }
+
+    public List<GuardData> getGuards(UUID ownerId) {
+        List<GuardData> result = new ArrayList<>();
+        if (ownerId == null) {
+            return result;
+        }
+        for (GuardData data : guards.values()) {
+            if (ownerId.equals(data.getOwnerId())) {
+                result.add(data);
+            }
+        }
+        return result;
+    }
+
+    public int countGuards(UUID ownerId) {
+        return getGuards(ownerId).size();
+    }
+
+    public GuardData registerGuard(Mob mob, Player owner) {
+        if (mob == null || owner == null || isGuard(mob)) {
+            return null;
+        }
+        Location location = mob.getLocation();
+        String ownerName = owner.getName();
+        String name = createDefaultName(ownerName, mob.getType());
+        GuardData data = new GuardData(
+                mob.getUniqueId(), owner.getUniqueId(), mob.getType(), GuardMode.FOLLOW,
+                name, ownerName, null, location);
+
+        saveOriginalSettings(mob);
+        guards.put(data.getGuardId(), data);
+        applyPdc(mob, data);
+        mob.setAware(true);
+        configureGuard(mob, data);
+        save();
+        return data;
+    }
+
+    /** Registers a BodyGuard found in a loaded chunk after a restart. */
+    public GuardData trackLoadedEntity(Entity entity) {
+        if (!(entity instanceof Mob mob)) {
+            return null;
+        }
+        PersistentDataContainer pdc = mob.getPersistentDataContainer();
+        if (!isMarked(pdc)) {
+            return null;
+        }
+
+        UUID ownerId = parseUuid(getString(pdc, keys.owner()));
+        if (ownerId == null) {
+            plugin.getLogger().warning("Ignoring BodyGuard with invalid owner UUID: " + entity.getUniqueId());
+            return null;
+        }
+
+        UUID entityId = entity.getUniqueId();
+        GuardData previous = guards.get(entityId);
+        GuardMode mode = GuardMode.fromString(getString(pdc, keys.mode()));
+        if (mode == null && previous != null) {
+            mode = previous.getMode();
+        }
+        if (mode == null) {
+            mode = GuardMode.FOLLOW;
+        }
+
+        String ownerName = previous == null ? null : previous.getOwnerName();
+        if (ownerName == null || ownerName.isBlank()) {
+            Player owner = Bukkit.getPlayer(ownerId);
+            ownerName = owner == null ? "Player" : owner.getName();
+        }
+        String name = getString(pdc, keys.name());
+        if (name == null || name.isBlank()) {
+            name = previous == null ? createDefaultName(ownerName, mob.getType()) : previous.getName();
+        }
+
+        Location anchor = previous == null ? readAnchorFromPdc(pdc) : previous.getAnchorLocation();
+        if (anchor == null && mode != GuardMode.FOLLOW) {
+            anchor = entity.getLocation();
+        }
+        GuardData data = new GuardData(
+                entityId, ownerId, mob.getType(), mode, name, ownerName, anchor, entity.getLocation());
+        guards.put(entityId, data);
+
+        // The entity UUID is authoritative. This repairs an incomplete saved PDC entry.
+        applyPdc(mob, data);
+        configureGuard(mob, data);
+        return data;
+    }
+
+    public boolean isGuard(Entity entity) {
+        return getGuardData(entity) != null;
+    }
+
+    public GuardData getGuardData(Entity entity) {
+        if (entity == null) {
+            return null;
+        }
+        GuardData data = guards.get(entity.getUniqueId());
+        PersistentDataContainer pdc = entity.getPersistentDataContainer();
+        if (data != null) {
+            if (!isMarked(pdc)) {
+                guards.remove(entity.getUniqueId());
+                return null;
+            }
+            return data;
+        }
+        return isMarked(pdc) ? trackLoadedEntity(entity) : null;
+    }
+
+    public UUID getOwner(Entity entity) {
+        GuardData data = getGuardData(entity);
+        return data == null ? null : data.getOwnerId();
+    }
+
+    public boolean owns(UUID ownerId, Entity entity) {
+        GuardData data = getGuardData(entity);
+        return data != null && ownerId != null && ownerId.equals(data.getOwnerId());
+    }
+
+    public Mob getLoadedMob(GuardData data) {
+        if (data == null) {
+            return null;
+        }
+        Entity entity = Bukkit.getEntity(data.getGuardId());
+        if (!(entity instanceof Mob mob) || !EntityUtil.isAlive(entity)) {
+            return null;
+        }
+        GuardData actual = getGuardData(entity);
+        return actual != null && data.getGuardId().equals(actual.getGuardId()) ? mob : null;
+    }
+
+    public boolean isForbiddenTarget(Mob guard, LivingEntity target) {
+        GuardData guardData = getGuardData(guard);
+        if (guardData == null || target == null) {
+            return false;
+        }
+        if (target.getUniqueId().equals(guardData.getOwnerId()) && !plugin.guardsCanDamageOwner()) {
+            return true;
+        }
+        if (target instanceof Player && !plugin.shouldDefendAgainstPlayers()) {
+            return true;
+        }
+        GuardData targetData = getGuardData(target);
+        return targetData != null
+                && targetData.getOwnerId().equals(guardData.getOwnerId())
+                && !plugin.guardsCanDamageEachOther();
+    }
+
+    public int commandGuardsToTarget(UUID ownerId, LivingEntity target, boolean defense) {
+        if (ownerId == null || target == null || !EntityUtil.isAlive(target)) {
+            return 0;
+        }
+        Player owner = Bukkit.getPlayer(ownerId);
+        if (owner == null || !EntityUtil.isAlive(owner)) {
+            return 0;
+        }
+        if (target.getUniqueId().equals(ownerId)
+                || (target instanceof Player && !plugin.shouldDefendAgainstPlayers())) {
+            return 0;
+        }
+        GuardData targetData = getGuardData(target);
+        if (targetData != null && ownerId.equals(targetData.getOwnerId())) {
+            return 0;
+        }
+        if (!LocationUtil.sameWorld(owner.getLocation(), target.getLocation())
+                || owner.getLocation().distanceSquared(target.getLocation())
+                > plugin.getTargetRange() * plugin.getTargetRange()) {
+            return 0;
+        }
+
+        int commanded = 0;
+        for (GuardData data : getGuards(ownerId)) {
+            if (defense && data.getMode() == GuardMode.STAY && !plugin.stayGuardsDefendOwner()) {
+                continue;
+            }
+            Mob guard = getLoadedMob(data);
+            if (guard == null || !LocationUtil.sameWorld(guard.getLocation(), target.getLocation())
+                    || isForbiddenTarget(guard, target)) {
+                continue;
+            }
+            guard.setTarget(target);
+            guard.setAware(true);
+            data.markCombat(plugin.getCombatGraceMillis());
+            commanded++;
+        }
+        return commanded;
+    }
+
+    public void setMode(GuardData data, Mob mob, GuardMode mode) {
+        if (data == null || mob == null || mode == null) {
+            return;
+        }
+        data.setMode(mode);
+        data.setAnchorLocation(mode == GuardMode.FOLLOW ? null : mob.getLocation());
+        mob.setTarget(null);
+        mob.setAware(true);
+        applyPdc(mob, data);
+        save();
+    }
+
+    public void rename(GuardData data, Mob mob, String name) {
+        if (data == null || mob == null || name == null || name.isBlank()) {
+            return;
+        }
+        data.setName(name);
+        applyPdc(mob, data);
+        configureGuard(mob, data);
+        save();
+    }
+
+    public int teleportGuards(Player owner) {
+        if (owner == null) {
+            return 0;
+        }
+        int teleported = 0;
+        int position = 0;
+        for (GuardData data : getGuards(owner.getUniqueId())) {
+            Mob guard = getLoadedMob(data);
+            if (guard == null) {
+                continue;
+            }
+            Location destination = LocationUtil.findSafeLocation(owner.getLocation(), position++);
+            if (destination == null || !guard.teleport(destination)) {
+                continue;
+            }
+            guard.setTarget(null);
+            data.setLastLocation(destination);
+            if (data.getMode() != GuardMode.FOLLOW) {
+                data.setAnchorLocation(destination);
+            }
+            teleported++;
+        }
+        if (teleported > 0) {
+            save();
+        }
+        return teleported;
+    }
+
+    public int healGuards(Player owner) {
+        if (owner == null) {
+            return 0;
+        }
+        int healed = 0;
+        for (GuardData data : getGuards(owner.getUniqueId())) {
+            Mob guard = getLoadedMob(data);
+            if (guard == null) {
+                continue;
+            }
+            AttributeInstance maxHealth = guard.getAttribute(Attribute.MAX_HEALTH);
+            if (maxHealth == null) {
+                continue;
+            }
+            double maximum = maxHealth.getValue();
+            if (guard.getHealth() < maximum) {
+                guard.setHealth(maximum);
+            }
+            healed++;
+        }
+        return healed;
+    }
+
+    public boolean releaseGuard(GuardData data, Mob mob) {
+        if (data == null) {
+            return false;
+        }
+        if (mob != null) {
+            restoreOriginalSettings(mob);
+            clearPdc(mob);
+        }
+        boolean removed = guards.remove(data.getGuardId()) != null;
+        if (removed) {
+            save();
+        }
+        return removed;
+    }
+
+    public int releaseAll(UUID ownerId) {
+        int released = 0;
+        for (GuardData data : getGuards(ownerId)) {
+            Mob mob = getLoadedMob(data);
+            if (mob == null) {
+                mob = loadMobForOperation(data);
+            }
+            if (mob != null) {
+                plugin.playGuardEffect(mob, false);
+            }
+            if (mob != null && releaseGuard(data, mob)) {
+                released++;
+            }
+        }
+        return released;
+    }
+
+    public GuardData removeGuard(Entity entity) {
+        if (entity == null) {
+            return null;
+        }
+        GuardData data = getGuardData(entity);
+        if (data == null) {
+            return null;
+        }
+        guards.remove(data.getGuardId());
+        save();
+        return data;
+    }
+
+    public void cleanup() {
+        boolean changed = false;
+        for (GuardData data : new ArrayList<>(guards.values())) {
+            Entity entity = Bukkit.getEntity(data.getGuardId());
+            if (entity == null) {
+                // null means the entity is probably in an unloaded chunk; retain its registry entry.
+                continue;
+            }
+            if (!(entity instanceof Mob) || entity.isDead() || !entity.isValid() || getGuardData(entity) == null) {
+                guards.remove(data.getGuardId());
+                changed = true;
+            } else {
+                data.setLastLocation(entity.getLocation());
+            }
+        }
+        if (changed) {
+            save();
+        }
+    }
+
+    public void handleChunkLoad(Chunk chunk) {
+        if (chunk == null) {
+            return;
+        }
+        boolean changed = false;
+        for (Entity entity : chunk.getEntities()) {
+            int before = guards.size();
+            if (trackLoadedEntity(entity) != null && guards.size() != before) {
+                changed = true;
+            }
+        }
+        if (changed) {
+            save();
+        }
+    }
+
+    public void handleChunkUnload(Chunk chunk) {
+        if (chunk == null) {
+            return;
+        }
+        for (Entity entity : chunk.getEntities()) {
+            GuardData data = getGuardData(entity);
+            if (data != null) {
+                data.setLastLocation(entity.getLocation());
+            }
+        }
+    }
+
+    public void freezeOwner(UUID ownerId) {
+        if (!plugin.freezeOfflineGuards()) {
+            return;
+        }
+        for (GuardData data : getGuards(ownerId)) {
+            Mob mob = getLoadedMob(data);
+            if (mob == null) {
+                continue;
+            }
+            mob.setTarget(null);
+            mob.setAware(false);
+            data.setOfflineFrozen(true);
+        }
+    }
+
+    public void resumeOwner(UUID ownerId) {
+        for (GuardData data : getGuards(ownerId)) {
+            Mob mob = getLoadedMob(data);
+            if (mob == null) {
+                continue;
+            }
+            if (data.isOfflineFrozen()) {
+                mob.setAware(true);
+                data.setOfflineFrozen(false);
+            }
+        }
+    }
+
+    public void refreshLoadedGuard(Mob mob, GuardData data) {
+        if (mob != null && data != null) {
+            configureGuard(mob, data);
+        }
+    }
+
+    private void configureGuard(Mob mob, GuardData data) {
+        mob.setPersistent(true);
+        mob.setRemoveWhenFarAway(false);
+        mob.setCustomName(data.getName());
+        mob.setCustomNameVisible(plugin.showNames());
+        if (isForbiddenTarget(mob, mob.getTarget())) {
+            mob.setTarget(null);
+        }
+    }
+
+    private void applyPdc(Mob mob, GuardData data) {
+        PersistentDataContainer pdc = mob.getPersistentDataContainer();
+        pdc.set(keys.marker(), PersistentDataType.BYTE, (byte) 1);
+        pdc.set(keys.owner(), PersistentDataType.STRING, data.getOwnerId().toString());
+        pdc.set(keys.guardUuid(), PersistentDataType.STRING, data.getGuardId().toString());
+        pdc.set(keys.mobType(), PersistentDataType.STRING, data.getMobType().name());
+        pdc.set(keys.mode(), PersistentDataType.STRING, data.getMode().commandName());
+        pdc.set(keys.name(), PersistentDataType.STRING, data.getName());
+
+        Location anchor = data.getAnchorLocation();
+        if (anchor == null || anchor.getWorld() == null) {
+            pdc.remove(keys.anchorWorld());
+            pdc.remove(keys.anchorX());
+            pdc.remove(keys.anchorY());
+            pdc.remove(keys.anchorZ());
+        } else {
+            pdc.set(keys.anchorWorld(), PersistentDataType.STRING, anchor.getWorld().getName());
+            pdc.set(keys.anchorX(), PersistentDataType.DOUBLE, anchor.getX());
+            pdc.set(keys.anchorY(), PersistentDataType.DOUBLE, anchor.getY());
+            pdc.set(keys.anchorZ(), PersistentDataType.DOUBLE, anchor.getZ());
+        }
+    }
+
+    private void saveOriginalSettings(Mob mob) {
+        PersistentDataContainer pdc = mob.getPersistentDataContainer();
+        pdc.set(keys.originalName(), PersistentDataType.STRING,
+                mob.getCustomName() == null ? "" : mob.getCustomName());
+        pdc.set(keys.originalNameVisible(), PersistentDataType.BYTE,
+                (byte) (mob.isCustomNameVisible() ? 1 : 0));
+        pdc.set(keys.originalRemoveWhenFarAway(), PersistentDataType.BYTE,
+                (byte) (mob.getRemoveWhenFarAway() ? 1 : 0));
+        pdc.set(keys.originalPersistent(), PersistentDataType.BYTE,
+                (byte) (mob.isPersistent() ? 1 : 0));
+        pdc.set(keys.originalAware(), PersistentDataType.BYTE,
+                (byte) (mob.isAware() ? 1 : 0));
+    }
+
+    private void restoreOriginalSettings(Mob mob) {
+        PersistentDataContainer pdc = mob.getPersistentDataContainer();
+        String originalName = getString(pdc, keys.originalName());
+        mob.setCustomName(originalName == null || originalName.isEmpty() ? null : originalName);
+        Byte visible = pdc.get(keys.originalNameVisible(), PersistentDataType.BYTE);
+        mob.setCustomNameVisible(visible != null && visible != 0);
+        Byte removeFarAway = pdc.get(keys.originalRemoveWhenFarAway(), PersistentDataType.BYTE);
+        if (removeFarAway != null) {
+            mob.setRemoveWhenFarAway(removeFarAway != 0);
+        }
+        Byte persistent = pdc.get(keys.originalPersistent(), PersistentDataType.BYTE);
+        if (persistent != null) {
+            mob.setPersistent(persistent != 0);
+        }
+        Byte aware = pdc.get(keys.originalAware(), PersistentDataType.BYTE);
+        if (aware != null) {
+            mob.setAware(aware != 0);
+        }
+        mob.setTarget(null);
+    }
+
+    private void clearPdc(Mob mob) {
+        PersistentDataContainer pdc = mob.getPersistentDataContainer();
+        pdc.remove(keys.marker());
+        pdc.remove(keys.owner());
+        pdc.remove(keys.guardUuid());
+        pdc.remove(keys.mobType());
+        pdc.remove(keys.mode());
+        pdc.remove(keys.name());
+        pdc.remove(keys.anchorWorld());
+        pdc.remove(keys.anchorX());
+        pdc.remove(keys.anchorY());
+        pdc.remove(keys.anchorZ());
+        pdc.remove(keys.originalName());
+        pdc.remove(keys.originalNameVisible());
+        pdc.remove(keys.originalRemoveWhenFarAway());
+        pdc.remove(keys.originalPersistent());
+        pdc.remove(keys.originalAware());
+    }
+
+    private Mob loadMobForOperation(GuardData data) {
+        Location location = data.getLastLocation();
+        if (location == null || location.getWorld() == null) {
+            return null;
+        }
+        try {
+            Chunk chunk = location.getWorld().getChunkAt(location.getBlockX() >> 4, location.getBlockZ() >> 4);
+            for (Entity entity : chunk.getEntities()) {
+                if (data.getGuardId().equals(entity.getUniqueId()) && entity instanceof Mob mob) {
+                    return getLoadedMob(data) == null ? null : mob;
+                }
+            }
+        } catch (RuntimeException exception) {
+            plugin.getLogger().log(Level.FINE, "Could not load a BodyGuard chunk for an operation", exception);
+        }
+        return null;
+    }
+
+    private Location readAnchorFromPdc(PersistentDataContainer pdc) {
+        String worldName = getString(pdc, keys.anchorWorld());
+        Double x = pdc.get(keys.anchorX(), PersistentDataType.DOUBLE);
+        Double y = pdc.get(keys.anchorY(), PersistentDataType.DOUBLE);
+        Double z = pdc.get(keys.anchorZ(), PersistentDataType.DOUBLE);
+        World world = worldName == null ? null : Bukkit.getWorld(worldName);
+        if (world == null || x == null || y == null || z == null
+                || !Double.isFinite(x) || !Double.isFinite(y) || !Double.isFinite(z)) {
+            return null;
+        }
+        return new Location(world, x, y, z);
+    }
+
+    private String createDefaultName(String ownerName, EntityType type) {
+        return plugin.color(plugin.getDefaultNameTemplate()
+                .replace("{owner}", ownerName == null ? "Player" : ownerName)
+                .replace("{mob}", EntityUtil.prettyMobName(type)));
+    }
+
+    private boolean isMarked(PersistentDataContainer pdc) {
+        Byte marker = pdc.get(keys.marker(), PersistentDataType.BYTE);
+        return marker != null && marker != 0;
+    }
+
+    private String getString(PersistentDataContainer pdc, NamespacedKey key) {
+        return pdc.get(key, PersistentDataType.STRING);
+    }
+
+    private UUID parseUuid(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return UUID.fromString(value);
+        } catch (IllegalArgumentException exception) {
+            return null;
+        }
+    }
+}
