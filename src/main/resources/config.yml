@@ -37,10 +37,24 @@ guard-mode:
 
 display:
   show-name: true
-  default-name: "{owner}'s {mob} Guard"
+  # New guards use {mob_name} and a per-owner/type {number}; old/custom templates remain valid.
+  default-name: "{mob_name}護衛 {number}"
+  gui-refresh-interval-ticks: 20
+  gui-result-seconds: 5
+  action-bar:
+    enabled: true
+    interval-ticks: 5
+    range: 10.0
 
 effects:
   enabled: true
+  gui-sounds:
+    enabled: true
+    success-sound: UI_BUTTON_CLICK
+    failure-sound: BLOCK_NOTE_BLOCK_BASS
+    volume: 0.35
+    success-pitch: 1.25
+    failure-pitch: 0.75
 
 owner-offline:
   freeze-guards: true
