@@ -9,10 +9,23 @@ if not defined MAVEN_CMD (
     for /f "delims=" %%M in ('where mvn 2^>nul') do if not defined MAVEN_CMD set "MAVEN_CMD=%%M"
 )
 
+rem Use Maven bundled with IntelliJ IDEA when it is available.
+if not defined MAVEN_CMD (
+    for /d %%D in ("%ProgramFiles%\JetBrains\IntelliJ IDEA*") do (
+        if exist "%%~fD\plugins\maven\lib\maven3\bin\mvn.cmd" if not defined MAVEN_CMD set "MAVEN_CMD=%%~fD\plugins\maven\lib\maven3\bin\mvn.cmd"
+    )
+)
+if not defined MAVEN_CMD (
+    for /d %%D in ("%LOCALAPPDATA%\Programs\JetBrains\IntelliJ IDEA*") do (
+        if exist "%%~fD\plugins\maven\lib\maven3\bin\mvn.cmd" if not defined MAVEN_CMD set "MAVEN_CMD=%%~fD\plugins\maven\lib\maven3\bin\mvn.cmd"
+    )
+)
+
 if not defined MAVEN_CMD (
     echo Maven was not found.
     echo Install Maven and add its bin directory to PATH,
     echo or set MAVEN_HOME to the Maven installation directory.
+    echo If IntelliJ IDEA is installed, make sure its Maven plugin is enabled.
     pause
     exit /b 1
 )

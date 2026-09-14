@@ -421,9 +421,13 @@ public final class BodyGuardGui implements Listener {
             if (slot < holder.getMobTypes().size()) {
                 EntityType type = holder.getMobTypes().get(slot);
                 boolean summoned = command.summonFromMenu(player, type);
-                transition(player, () -> summoned
-                        ? openList(player, 0)
-                        : openSummon(player, holder.getPage()));
+                transition(player, () -> {
+                    if (summoned) {
+                        openList(player, 0);
+                    } else {
+                        openSummon(player, holder.getPage());
+                    }
+                });
             }
             return;
         }

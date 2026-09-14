@@ -48,7 +48,6 @@
             <resource>
                 <directory>src/main/resources</directory>
                 <filtering>true</filtering>
-                <encoding>${project.build.sourceEncoding}</encoding>
             </resource>
         </resources>
     </build>
