@@ -440,7 +440,7 @@ public final class BodyGuardCommand implements CommandExecutor {
             messages.send(sender, "not-looking-at-mob");
             return true;
         }
-        manager.setMode(data, mob, mode);
+        manager.setMode(data, mob, mode, player.getLocation());
         messages.send(sender, "mode-changed", Map.of(
                 "name", data.getName(),
                 "mode", mode.displayName()

@@ -741,7 +741,7 @@ public final class BodyGuardGui implements Listener {
         CommandCounts before = commandCounts(player);
         int changed = 0;
         for (GuardData data : manager.getGuards(player.getUniqueId())) {
-            if (manager.setMode(player.getUniqueId(), data.getGuardId(), mode)) {
+            if (manager.setMode(player.getUniqueId(), data.getGuardId(), mode, player.getLocation())) {
                 changed++;
             }
         }
@@ -974,7 +974,7 @@ public final class BodyGuardGui implements Listener {
             case STAY -> GuardMode.GUARD;
             case GUARD -> GuardMode.FOLLOW;
         };
-        if (!manager.setMode(player.getUniqueId(), guardId, next)) {
+        if (!manager.setMode(player.getUniqueId(), guardId, next, player.getLocation())) {
             showUnavailableAndReturn(player, holder);
             return;
         }
@@ -1070,7 +1070,7 @@ public final class BodyGuardGui implements Listener {
                 showUnavailableAndReturn(player, holder);
                 return;
             }
-            if (data.getMode() == mode) {
+            if (data.getMode() == mode && mode != GuardMode.GUARD) {
                 return;
             }
             if (!hasPermission(player, "bodyguard.mode")) {
@@ -1083,7 +1083,7 @@ public final class BodyGuardGui implements Listener {
                         Map.of(), false);
                 return;
             }
-            if (!manager.setMode(player.getUniqueId(), holder.getGuardId(), mode)) {
+            if (!manager.setMode(player.getUniqueId(), holder.getGuardId(), mode, player.getLocation())) {
                 showUnavailableAndReturn(player, holder);
                 return;
             }
@@ -1429,6 +1429,18 @@ public final class BodyGuardGui implements Listener {
         };
         List<String> lore = new ArrayList<>();
         lore.add(modeDescription(mode));
+        if (mode == GuardMode.GUARD) {
+            lore.add(text("gui.guard-point-how", "&bクリック時に、あなたが立っている場所を警備地点にします。"));
+            Location anchor = data == null ? null : data.getAnchorLocation();
+            if (data != null && data.getMode() == GuardMode.GUARD && anchor != null) {
+                lore.add(text("gui.guard-point-current", "&7現在の地点: &f{world} {x}, {y}, {z}", Map.of(
+                        "world", anchor.getWorld() == null ? "不明" : anchor.getWorld().getName(),
+                        "x", String.valueOf(anchor.getBlockX()),
+                        "y", String.valueOf(anchor.getBlockY()),
+                        "z", String.valueOf(anchor.getBlockZ()))));
+                lore.add(text("gui.guard-point-reset", "&e選択中でもクリックすると地点を更新できます。"));
+            }
+        }
         lore.add(" ");
         if (current) {
             lore.add(text("gui.current-mode", "&a選択中のモードです。"));
@@ -1456,7 +1468,7 @@ public final class BodyGuardGui implements Listener {
         return switch (mode) {
             case FOLLOW -> text("gui.mode-follow", "&7所有者の近くへ付いてきます。");
             case STAY -> text("gui.mode-stay", "&7その場で待機し、必要時に守ります。");
-            case GUARD -> text("gui.mode-guard", "&7指定地点の周囲を警備します。");
+            case GUARD -> text("gui.mode-guard", "&7あなたが立っている地点を中心に、範囲内だけを警備します。");
         };
     }
 

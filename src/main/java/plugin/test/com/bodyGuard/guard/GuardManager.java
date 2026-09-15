@@ -252,6 +252,11 @@ public final class GuardManager {
 
     /** Changes a selected guard only when it is still owned by the caller and loaded. */
     public boolean setMode(UUID ownerId, UUID guardId, GuardMode mode) {
+        return setMode(ownerId, guardId, mode, null);
+    }
+
+    /** Changes mode and, for guard mode, uses the explicitly selected patrol point. */
+    public boolean setMode(UUID ownerId, UUID guardId, GuardMode mode, Location guardPoint) {
         GuardData data = getGuardData(guardId);
         if (data == null || ownerId == null || !ownerId.equals(data.getOwnerId()) || mode == null) {
             return false;
@@ -260,7 +265,7 @@ public final class GuardManager {
         if (mob == null || !owns(ownerId, mob)) {
             return false;
         }
-        setMode(data, mob, mode);
+        setMode(data, mob, mode, guardPoint);
         return true;
     }
 
@@ -402,12 +407,19 @@ public final class GuardManager {
     }
 
     public void setMode(GuardData data, Mob mob, GuardMode mode) {
+        setMode(data, mob, mode, null);
+    }
+
+    public void setMode(GuardData data, Mob mob, GuardMode mode, Location guardPoint) {
         if (data == null || mob == null || mode == null) {
             return;
         }
         data.setMode(mode);
         data.clearCombat();
-        data.setAnchorLocation(mode == GuardMode.FOLLOW ? null : mob.getLocation());
+        Location anchor = mode == GuardMode.GUARD && guardPoint != null
+                ? guardPoint
+                : mob.getLocation();
+        data.setAnchorLocation(mode == GuardMode.FOLLOW ? null : anchor);
         mob.setTarget(null);
         mob.setAware(true);
         applyPdc(mob, data);

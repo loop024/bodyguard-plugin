@@ -172,13 +172,33 @@ public final class GuardTask extends BukkitRunnable {
             data.setAnchorLocation(anchor);
             manager.markDirty();
         }
-        if (target != null && data.isInCombat()) {
-            // Owner-defense and owner-assist targets may temporarily leave the patrol radius.
-            // They are allowed to finish combat; the guard returns after the target disappears.
+        mob.setAware(true);
+
+        if (!LocationUtil.sameWorld(anchor, mob.getLocation())) {
+            teleportToAnchor(data, mob, anchor);
             return;
         }
 
-        mob.setAware(true);
+        double distanceSquared = mob.getLocation().distanceSquared(anchor);
+        double radius = plugin.getGuardRadius();
+        double returnDistance = Math.max(plugin.getGuardReturnDistance(), radius + 2.0);
+
+        // The patrol radius is a hard combat leash. Once crossed, abandon even an
+        // owner-assist target so a guard cannot keep chasing indefinitely.
+        if (distanceSquared > radius * radius) {
+            data.clearCombat();
+            mob.setTarget(null);
+            if (distanceSquared >= returnDistance * returnDistance) {
+                teleportToAnchor(data, mob, anchor);
+            } else {
+                LocationUtil.moveToward(mob, anchor, plugin.getFollowMoveSpeed());
+            }
+            return;
+        }
+
+        if (target != null && data.isInCombat()) {
+            return;
+        }
 
         LivingEntity nearest = findNearestHostile(mob, anchor, plugin.getGuardRadius());
         if (nearest != null) {
@@ -186,20 +206,7 @@ public final class GuardTask extends BukkitRunnable {
             return;
         }
 
-        if (!LocationUtil.sameWorld(anchor, mob.getLocation())) {
-            teleportToAnchor(data, mob, anchor);
-            return;
-        }
-        double distanceSquared = mob.getLocation().distanceSquared(anchor);
-        double radius = plugin.getGuardRadius();
-        double returnDistance = Math.max(plugin.getGuardReturnDistance(), radius * 2.0);
-        if (distanceSquared >= returnDistance * returnDistance) {
-            teleportToAnchor(data, mob, anchor);
-        } else if (distanceSquared > radius * radius) {
-            LocationUtil.moveToward(mob, anchor, plugin.getFollowMoveSpeed());
-        } else {
-            LocationUtil.stopHorizontal(mob);
-        }
+        LocationUtil.stopHorizontal(mob);
     }
 
     private LivingEntity findNearestHostile(Mob guard, Location anchor, double radius) {
