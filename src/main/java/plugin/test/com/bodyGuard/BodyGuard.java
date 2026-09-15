@@ -30,6 +30,7 @@ import plugin.test.com.bodyGuard.guard.GuardManager;
 import plugin.test.com.bodyGuard.guard.GuardTask;
 import plugin.test.com.bodyGuard.listener.CombatListener;
 import plugin.test.com.bodyGuard.listener.GuardDeathListener;
+import plugin.test.com.bodyGuard.listener.MenuOpenerListener;
 import plugin.test.com.bodyGuard.listener.PlayerListener;
 import plugin.test.com.bodyGuard.listener.TargetListener;
 import plugin.test.com.bodyGuard.storage.GuardStorage;
@@ -88,6 +89,7 @@ public final class BodyGuard extends JavaPlugin {
         getServer().getPluginManager().registerEvents(new TargetListener(guardManager), this);
         getServer().getPluginManager().registerEvents(new GuardDeathListener(this, guardManager), this);
         getServer().getPluginManager().registerEvents(new PlayerListener(this, guardManager, gui), this);
+        getServer().getPluginManager().registerEvents(new MenuOpenerListener(this, messages), this);
         getServer().getPluginManager().registerEvents(gui, this);
         command.setExecutor(commandExecutor);
         command.setTabCompleter(new BodyGuardTabCompleter(this));
@@ -111,7 +113,7 @@ public final class BodyGuard extends JavaPlugin {
             gui.stopTasks();
         }
         if (guardManager != null) {
-            guardManager.save();
+            guardManager.forceSave();
         }
         HandlerList.unregisterAll(this);
     }
@@ -198,6 +200,10 @@ public final class BodyGuard extends JavaPlugin {
 
     public int getMaxGuardsPerPlayer() {
         return intSetting("limits.max-guards-per-player", 10, 1, 1000);
+    }
+
+    public int getAutosaveIntervalTicks() {
+        return intSetting("storage.autosave-seconds", 60, 0, 3600) * 20;
     }
 
     public double getFollowStartDistance() {
@@ -342,6 +348,18 @@ public final class BodyGuard extends JavaPlugin {
         Byte marker = item.getItemMeta().getPersistentDataContainer()
                 .get(keys.menuOpener(), PersistentDataType.BYTE);
         return marker != null && marker == (byte) 1;
+    }
+
+    public boolean hasMenuOpenerItem(Player player) {
+        if (player == null) {
+            return false;
+        }
+        for (ItemStack item : player.getInventory().getContents()) {
+            if (isMenuOpenerItem(item)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public boolean guiSoundsEnabled() {

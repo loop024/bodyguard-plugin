@@ -20,6 +20,9 @@ permissions:
   bodyguard.summon:
     description: Allows summoning a BodyGuard
     default: true
+  bodyguard.item:
+    description: Allows receiving the protected BodyGuard menu item
+    default: true
   bodyguard.recruit:
     description: Allows recruiting an existing mob
     default: true

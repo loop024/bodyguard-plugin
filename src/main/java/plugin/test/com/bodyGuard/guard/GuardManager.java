@@ -474,6 +474,7 @@ public final class GuardManager {
         if (data.getMode() != GuardMode.FOLLOW) {
             data.setAnchorLocation(destination);
         }
+        dirty = true;
         return true;
     }
 
@@ -577,6 +578,7 @@ public final class GuardManager {
             GuardData data = getGuardData(entity);
             if (data != null) {
                 data.setLastLocation(entity.getLocation());
+                dirty = true;
             }
         }
     }

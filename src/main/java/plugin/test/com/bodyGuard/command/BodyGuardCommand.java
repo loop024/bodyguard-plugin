@@ -103,6 +103,9 @@ public final class BodyGuardCommand implements CommandExecutor {
     }
 
     private boolean item(CommandSender sender, String[] args) {
+        if (!requirePermission(sender, "bodyguard.item")) {
+            return true;
+        }
         if (args.length != 1) {
             usage(sender, "/bg item");
             return true;
@@ -111,11 +114,18 @@ public final class BodyGuardCommand implements CommandExecutor {
         if (player == null) {
             return true;
         }
+        if (plugin.hasMenuOpenerItem(player)) {
+            messages.send(player, "menu-item-already-owned",
+                    "&eBodyGuardメニューアイテムはすでに持っています。");
+            return true;
+        }
 
         ItemStack opener = plugin.createMenuOpenerItem();
         Map<Integer, ItemStack> remaining = player.getInventory().addItem(opener);
-        for (ItemStack leftover : remaining.values()) {
-            player.getWorld().dropItemNaturally(player.getLocation(), leftover);
+        if (!remaining.isEmpty()) {
+            messages.send(player, "menu-item-inventory-full",
+                    "&cインベントリに空きがないため、メニューアイテムを渡せませんでした。");
+            return true;
         }
         messages.send(player, "menu-item-received",
                 "&aBodyGuardメニューアイテムを受け取りました。右クリックで使えます。");

@@ -2,13 +2,17 @@
 general:
   language: ja
 
+storage:
+  # Save changed guard data periodically. Set to 0 to disable periodic saves.
+  autosave-seconds: 60
+
 limits:
   max-guards-per-player: 10
 
 # Right-click this item in the main hand to open the BodyGuard menu.
 # Any valid Minecraft material name can be used, for example: COMPASS, BLAZE_ROD.
 menu-opener:
-  material: NETHER_STAR
+  material: COMPASS
 
 follow:
   start-distance: 5.0

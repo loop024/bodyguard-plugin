@@ -115,6 +115,24 @@ public final class GuardData {
         this.lastLocation = LocationUtil.copy(lastLocation);
     }
 
+    /** Updates the persisted position only after meaningful movement, reducing needless saves. */
+    public boolean updateLastLocation(Location location, double minimumDistanceSquared) {
+        Location next = LocationUtil.copy(location);
+        if (next == null) {
+            if (lastLocation == null) {
+                return false;
+            }
+            lastLocation = null;
+            return true;
+        }
+        if (lastLocation != null && LocationUtil.sameWorld(lastLocation, next)
+                && lastLocation.distanceSquared(next) < Math.max(0.0, minimumDistanceSquared)) {
+            return false;
+        }
+        lastLocation = next;
+        return true;
+    }
+
     public void markCombat(long durationMillis) {
         long safeDuration = Math.max(500L, durationMillis);
         combatUntilMillis = Math.max(combatUntilMillis, System.currentTimeMillis() + safeDuration);

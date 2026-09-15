@@ -38,6 +38,7 @@
 | --- | --- |
 | `/bg help` | コマンド一覧を表示 |
 | `/bg` / `/bg menu` | 護衛一覧GUIを開く（プレイヤーのみ） |
+| `/bg item` | 保護されたメニュー専用アイテムを受け取る（1個まで） |
 | `/bg summon <mob>` | 対応Mobを召喚して護衛にする |
 | `/bg recruit` | 見ている既存の対応Mobを護衛にする |
 | `/bg release` | 見ている自分の護衛を通常Mobに戻す |
@@ -171,6 +172,7 @@ HPを取得でき、現在HPが最大HPより少ない護衛だけを「負傷�
 ## Permissions
 
 - `bodyguard.use` - `/bg` とGUIの使用
+- `bodyguard.item` - メニュー専用アイテムの受け取り
 - `bodyguard.summon` - 護衛の召喚
 - `bodyguard.recruit` - 既存Mobの勧誘
 - `bodyguard.release` - 護衛の解除
@@ -190,6 +192,8 @@ HPを取得でき、現在HPが最大HPより少ない護衛だけを「負傷�
 
 | キー | 初期値 | 説明 |
 | --- | ---: | --- |
+| `storage.autosave-seconds` | `60` | 変更された護衛情報の自動保存間隔。`0`で無効 |
+| `menu-opener.material` | `COMPASS` | メニュー専用アイテムの素材 |
 | `display.default-name` | `{mob_name}護衛 {number}` | 新規護衛名のテンプレート |
 | `display.gui-refresh-interval-ticks` | `20` | GUI自動更新間隔。`0`で無効 |
 | `display.gui-result-seconds` | `5` | 操作結果を表示する秒数 |
@@ -215,6 +219,10 @@ Zombie、Skeleton、Husk、Stray、Drowned、Bogged、Wither Skeleton、Zombifie
 ## データ保存
 
 護衛EntityにはPersistentDataContainerでBodyGuard識別情報、所有者UUID、護衛UUID、種類、モード、名前、名前番号を保存します。`guards.yml` には管理情報、名前番号、待機・警備地点を保存します。Entityが未読み込みの間は、表示で取得できないHP・距離を推測しません。
+
+`guards.yml` は変更がある場合に標準60秒間隔で自動保存します。保存時は一時ファイルを作成してから置き換え、直前の内容を `guards.yml.bak` に残します。プラグイン終了時には現在の内容を最終保存します。全解除はサーバー停止を避けるため未読み込みチャンクを強制ロードせず、現在読み込まれている護衛だけを解除します。
+
+メニュー専用アイテムは1人1個までです。ドロップ、死亡時のドロップ、クラフト材料としての利用、通常コンテナ・作業台・金床・鍛冶台への移動を防止します。既存の `config.yml` は自動上書きされないため、以前の `NETHER_STAR` を `COMPASS` に変えたい場合は、サーバー停止中に `menu-opener.material` を手動で変更してください。
 
 ## ビルドとJarの入れ替え（ユーザーが実行）
 

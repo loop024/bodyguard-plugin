@@ -36,7 +36,9 @@ public final class GuardTask extends BukkitRunnable {
                 continue;
             }
 
-            data.setLastLocation(mob.getLocation());
+            if (data.updateLastLocation(mob.getLocation(), 0.25)) {
+                manager.markDirty();
+            }
             manager.refreshLoadedGuard(mob, data);
 
             Player owner = org.bukkit.Bukkit.getPlayer(data.getOwnerId());
@@ -65,7 +67,9 @@ public final class GuardTask extends BukkitRunnable {
         if (executions % 20L == 0L) {
             manager.cleanup();
         }
-        if (executions % 12L == 0L) {
+        long autosaveTicks = plugin.getAutosaveIntervalTicks();
+        long executionsPerAutosave = Math.max(1L, autosaveTicks / 10L);
+        if (autosaveTicks > 0L && executions % executionsPerAutosave == 0L) {
             manager.save();
         }
     }
@@ -166,6 +170,7 @@ public final class GuardTask extends BukkitRunnable {
         if (anchor == null) {
             anchor = mob.getLocation();
             data.setAnchorLocation(anchor);
+            manager.markDirty();
         }
         if (target != null && data.isInCombat()) {
             // Owner-defense and owner-assist targets may temporarily leave the patrol radius.
@@ -225,6 +230,7 @@ public final class GuardTask extends BukkitRunnable {
         data.clearCombat();
         mob.setTarget(null);
         data.setLastLocation(destination);
+        manager.markDirty();
     }
 
     private void teleportToAnchor(GuardData data, Mob mob, Location anchor) {
@@ -236,6 +242,7 @@ public final class GuardTask extends BukkitRunnable {
         data.clearCombat();
         mob.setTarget(null);
         data.setLastLocation(destination);
+        manager.markDirty();
     }
 
     private void freeze(Mob mob, GuardData data) {
