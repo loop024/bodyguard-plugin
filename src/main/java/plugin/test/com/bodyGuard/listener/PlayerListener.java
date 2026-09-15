@@ -55,7 +55,7 @@ public final class PlayerListener implements Listener {
     }
 
     /** Opens the main menu by right-clicking the configured item in the main hand. */
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.HIGHEST)
     public void onRightClickMenuOpener(PlayerInteractEvent event) {
         if (event.getHand() != EquipmentSlot.HAND
                 || (event.getAction() != Action.RIGHT_CLICK_AIR
@@ -75,7 +75,11 @@ public final class PlayerListener implements Listener {
         }
 
         event.setCancelled(true);
-        gui.openList(player);
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            if (player.isOnline() && plugin.isMenuOpenerItem(player.getInventory().getItemInMainHand())) {
+                gui.openList(player);
+            }
+        });
     }
 
     /** Opens a personally owned guard's detail screen without changing ordinary right-clicks. */
