@@ -3,9 +3,11 @@ package plugin.test.com.bodyGuard.listener;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
+import org.bukkit.event.block.Action;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
@@ -50,6 +52,30 @@ public final class PlayerListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onChunkUnload(ChunkUnloadEvent event) {
         manager.handleChunkUnload(event.getChunk());
+    }
+
+    /** Opens the main menu by right-clicking the configured item in the main hand. */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onRightClickMenuOpener(PlayerInteractEvent event) {
+        if (event.getHand() != EquipmentSlot.HAND
+                || (event.getAction() != Action.RIGHT_CLICK_AIR
+                    && event.getAction() != Action.RIGHT_CLICK_BLOCK)) {
+            return;
+        }
+
+        Player player = event.getPlayer();
+        if ((!player.hasPermission("bodyguard.use") && !player.hasPermission("bodyguard.admin"))
+                || gui == null) {
+            return;
+        }
+
+        ItemStack item = event.getItem();
+        if (!plugin.isMenuOpenerItem(item)) {
+            return;
+        }
+
+        event.setCancelled(true);
+        gui.openList(player);
     }
 
     /** Opens a personally owned guard's detail screen without changing ordinary right-clicks. */

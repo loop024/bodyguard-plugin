@@ -14,6 +14,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.util.Vector;
 
 import plugin.test.com.bodyGuard.BodyGuard;
@@ -65,6 +66,7 @@ public final class BodyGuardCommand implements CommandExecutor {
                 yield true;
             }
             case "menu" -> menu(sender, args);
+            case "item" -> item(sender, args);
             case "summon" -> summon(sender, args);
             case "recruit" -> recruit(sender, args);
             case "release" -> release(sender, args);
@@ -85,6 +87,7 @@ public final class BodyGuardCommand implements CommandExecutor {
     private void sendHelp(CommandSender sender) {
         messages.sendLines(sender, "help", Collections.emptyMap());
         messages.send(sender, "help-menu", "&f/bg &7- 護衛一覧のGUIを開く");
+        messages.send(sender, "help-item", "&f/bg item &7- 右クリックでメニューを開く専用アイテムを受け取る");
     }
 
     private boolean menu(CommandSender sender, String[] args) {
@@ -96,6 +99,26 @@ public final class BodyGuardCommand implements CommandExecutor {
         if (player != null && gui != null) {
             gui.openList(player);
         }
+        return true;
+    }
+
+    private boolean item(CommandSender sender, String[] args) {
+        if (args.length != 1) {
+            usage(sender, "/bg item");
+            return true;
+        }
+        Player player = requirePlayer(sender);
+        if (player == null) {
+            return true;
+        }
+
+        ItemStack opener = plugin.createMenuOpenerItem();
+        Map<Integer, ItemStack> remaining = player.getInventory().addItem(opener);
+        for (ItemStack leftover : remaining.values()) {
+            player.getWorld().dropItemNaturally(player.getLocation(), leftover);
+        }
+        messages.send(player, "menu-item-received",
+                "&aBodyGuardメニューアイテムを受け取りました。右クリックで使えます。");
         return true;
     }
 

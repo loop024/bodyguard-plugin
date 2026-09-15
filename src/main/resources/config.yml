@@ -5,6 +5,11 @@ general:
 limits:
   max-guards-per-player: 10
 
+# Right-click this item in the main hand to open the BodyGuard menu.
+# Any valid Minecraft material name can be used, for example: COMPASS, BLAZE_ROD.
+menu-opener:
+  material: NETHER_STAR
+
 follow:
   start-distance: 5.0
   teleport-distance: 30.0

@@ -8,6 +8,7 @@ import java.util.logging.Level;
 
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.World;
@@ -17,6 +18,9 @@ import org.bukkit.entity.Mob;
 import org.bukkit.entity.Player;
 import org.bukkit.event.HandlerList;
 import org.bukkit.command.PluginCommand;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import plugin.test.com.bodyGuard.command.BodyGuardCommand;
@@ -307,6 +311,39 @@ public final class BodyGuard extends JavaPlugin {
         return intSetting("display.gui-result-seconds", 5, 1, 30) * 20;
     }
 
+    /** Item that opens the main menu when right-clicked. */
+    public Material getMenuOpenerMaterial() {
+        String configured = getConfig().getString("menu-opener.material", "NETHER_STAR");
+        Material material = configured == null ? null : Material.matchMaterial(configured.trim());
+        return material == null || material.isAir() ? Material.NETHER_STAR : material;
+    }
+
+    /** Creates the tagged item that players use to open the main menu. */
+    public ItemStack createMenuOpenerItem() {
+        ItemStack item = new ItemStack(getMenuOpenerMaterial());
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(color("&b&lBodyGuard メニュー"));
+            meta.setLore(java.util.List.of(
+                    color("&7右クリックで護衛メニューを開く"),
+                    color("&8BodyGuard 専用アイテム")
+            ));
+            meta.getPersistentDataContainer().set(keys.menuOpener(), PersistentDataType.BYTE, (byte) 1);
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
+    /** Returns whether an item was issued as a BodyGuard menu opener. */
+    public boolean isMenuOpenerItem(ItemStack item) {
+        if (item == null || !item.hasItemMeta()) {
+            return false;
+        }
+        Byte marker = item.getItemMeta().getPersistentDataContainer()
+                .get(keys.menuOpener(), PersistentDataType.BYTE);
+        return marker != null && marker == (byte) 1;
+    }
+
     public boolean guiSoundsEnabled() {
         return getConfig().getBoolean("effects.gui-sounds.enabled", true);
     }
@@ -439,6 +476,7 @@ public final class BodyGuard extends JavaPlugin {
         private final org.bukkit.NamespacedKey originalRemoveWhenFarAway;
         private final org.bukkit.NamespacedKey originalPersistent;
         private final org.bukkit.NamespacedKey originalAware;
+        private final org.bukkit.NamespacedKey menuOpener;
 
         private NamespacedKeys(JavaPlugin plugin) {
             marker = new org.bukkit.NamespacedKey(plugin, "guard");
@@ -457,6 +495,7 @@ public final class BodyGuard extends JavaPlugin {
             originalRemoveWhenFarAway = new org.bukkit.NamespacedKey(plugin, "original_remove_when_far_away");
             originalPersistent = new org.bukkit.NamespacedKey(plugin, "original_persistent");
             originalAware = new org.bukkit.NamespacedKey(plugin, "original_aware");
+            menuOpener = new org.bukkit.NamespacedKey(plugin, "menu_opener");
         }
 
         public org.bukkit.NamespacedKey marker() { return marker; }
@@ -475,5 +514,6 @@ public final class BodyGuard extends JavaPlugin {
         public org.bukkit.NamespacedKey originalRemoveWhenFarAway() { return originalRemoveWhenFarAway; }
         public org.bukkit.NamespacedKey originalPersistent() { return originalPersistent; }
         public org.bukkit.NamespacedKey originalAware() { return originalAware; }
+        public org.bukkit.NamespacedKey menuOpener() { return menuOpener; }
     }
 }
