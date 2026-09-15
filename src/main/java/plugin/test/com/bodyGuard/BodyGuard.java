@@ -486,6 +486,7 @@ public final class BodyGuard extends JavaPlugin {
         private final org.bukkit.NamespacedKey name;
         private final org.bukkit.NamespacedKey nameNumber;
         private final org.bukkit.NamespacedKey anchorWorld;
+        private final org.bukkit.NamespacedKey anchorWorldUuid;
         private final org.bukkit.NamespacedKey anchorX;
         private final org.bukkit.NamespacedKey anchorY;
         private final org.bukkit.NamespacedKey anchorZ;
@@ -505,6 +506,7 @@ public final class BodyGuard extends JavaPlugin {
             name = new org.bukkit.NamespacedKey(plugin, "name");
             nameNumber = new org.bukkit.NamespacedKey(plugin, "name_number");
             anchorWorld = new org.bukkit.NamespacedKey(plugin, "anchor_world");
+            anchorWorldUuid = new org.bukkit.NamespacedKey(plugin, "anchor_world_uuid");
             anchorX = new org.bukkit.NamespacedKey(plugin, "anchor_x");
             anchorY = new org.bukkit.NamespacedKey(plugin, "anchor_y");
             anchorZ = new org.bukkit.NamespacedKey(plugin, "anchor_z");
@@ -524,6 +526,7 @@ public final class BodyGuard extends JavaPlugin {
         public org.bukkit.NamespacedKey name() { return name; }
         public org.bukkit.NamespacedKey nameNumber() { return nameNumber; }
         public org.bukkit.NamespacedKey anchorWorld() { return anchorWorld; }
+        public org.bukkit.NamespacedKey anchorWorldUuid() { return anchorWorldUuid; }
         public org.bukkit.NamespacedKey anchorX() { return anchorX; }
         public org.bukkit.NamespacedKey anchorY() { return anchorY; }
         public org.bukkit.NamespacedKey anchorZ() { return anchorZ; }

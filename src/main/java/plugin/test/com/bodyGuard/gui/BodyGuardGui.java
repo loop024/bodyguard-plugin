@@ -54,7 +54,6 @@ public final class BodyGuardGui implements Listener {
     private static final int MAIN_SIZE = 54;
     private static final int DETAIL_SIZE = 45;
     private static final int MANAGEMENT_SIZE = 27;
-    private static final int CONFIRM_SIZE = 27;
     private static final int PREVIOUS_SLOT = 45;
     private static final int NEXT_SLOT = 52;
     private static final int CLOSE_SLOT = 53;
@@ -63,6 +62,8 @@ public final class BodyGuardGui implements Listener {
     private final GuardManager manager;
     private final MessageUtil messages;
     private final BodyGuardCommand command;
+    private final BodyGuardReleaseMenu releaseMenu;
+    private final GuardListQuery listQuery;
     private final Map<UUID, UiResult> results = new HashMap<>();
     private final Map<UUID, Long> resultTokens = new HashMap<>();
     private final Map<UUID, String> actionBarTexts = new HashMap<>();
@@ -76,6 +77,8 @@ public final class BodyGuardGui implements Listener {
         this.manager = manager;
         this.messages = messages;
         this.command = command;
+        this.releaseMenu = new BodyGuardReleaseMenu(messages);
+        this.listQuery = new GuardListQuery(manager);
     }
 
     public void startTasks() {
@@ -141,7 +144,7 @@ public final class BodyGuardGui implements Listener {
         BodyGuardMenuHolder.GuardSort safeSort = sort == null
                 ? BodyGuardMenuHolder.GuardSort.STANDARD : sort;
         List<GuardData> all = manager.getGuards(player.getUniqueId());
-        List<GuardData> filtered = filterAndSort(player, all, safeFilter, safeSort);
+        List<GuardData> filtered = listQuery.filterAndSort(player, all, safeFilter, safeSort);
         int pages = pageCount(filtered.size());
         int page = clampPage(requestedPage, pages);
         List<UUID> pageIds = new ArrayList<>();
@@ -387,31 +390,8 @@ public final class BodyGuardGui implements Listener {
                 BodyGuardMenuHolder.MenuType.RELEASE_CONFIRM, player.getUniqueId(), returnPage,
                 releaseAll ? null : guardIds.iterator().next(), guardIds, null, releaseAll,
                 filter, sort, -1, -1);
-        Inventory inventory = createInventory(holder, CONFIRM_SIZE,
-                text(releaseAll ? "gui.confirm-all-title" : "gui.confirm-single-title",
-                        releaseAll ? "&c全解除の確認" : "&c解除の確認"));
-        fillInventory(inventory);
-        String target = releaseAll
-                ? text("gui.confirm-target-count", "&f対象: &e{count}体",
-                Map.of("count", String.valueOf(targetCount)))
-                : text("gui.confirm-target-name", "&f対象: &e{name}",
-                Map.of("name", plugin.color(targetName)));
-        inventory.setItem(4, item(Material.BOOK, text("gui.confirm-target", "&e解除対象"),
-                List.of(target, text("gui.confirm-warning", "&c通常のMobに戻り、敵対する可能性があります。"))));
-        inventory.setItem(13, item(Material.REDSTONE, text("gui.confirm-warning-title", "&e注意"),
-                List.of(text("gui.confirm-warning", "&c通常のMobに戻り、敵対する可能性があります。"),
-                        text("gui.confirm-snapshot", "&7この画面を開いた時点のUUIDだけを対象にします。"),
-                        text("gui.confirm-loaded-note", "&7未読み込みの護衛は解除予約になり、読み込み時に解除されます。"))));
-        inventory.setItem(11, item(Material.RED_CONCRETE, text("gui.confirm-release", "&c解除する"),
-                List.of(text("gui.confirm-release-lore", "&7解除を実行します。"))));
-        inventory.setItem(15, item(Material.BLUE_CONCRETE, text("gui.confirm-cancel", "&bキャンセル"),
-                List.of(text("gui.confirm-cancel-lore", "&7解除せずに戻ります。"))));
-        inventory.setItem(22, item(Material.ARROW,
-                text(releaseAll ? "gui.back-management" : "gui.back-detail",
-                        releaseAll ? "&b管理に戻る" : "&b護衛詳細に戻る"),
-                List.of(text("gui.confirm-cancel-lore", "&7解除せずに戻ります。"))));
-        inventory.setItem(26, item(Material.BARRIER, text("gui.close", "&c閉じる"),
-                List.of(text("gui.confirm-cancel-lore", "&7解除せずに戻ります。"))));
+        Inventory inventory = releaseMenu.create(holder, releaseAll,
+                targetName == null ? null : plugin.color(targetName), targetCount);
         player.openInventory(inventory);
     }
 
@@ -1162,9 +1142,7 @@ public final class BodyGuardGui implements Listener {
         inventory.setItem(25, actionItem(player, data, mob, "bodyguard.teleport", Material.COMPASS,
                 "gui.single-recall", "&bこの護衛を呼ぶ",
                 List.of(text("gui.single-recall-lore", "&7この護衛1体だけを安全な場所へ呼び戻します。"))));
-        inventory.setItem(31, actionItem(player, data, mob, "bodyguard.release", Material.RED_DYE,
-                "gui.release-single", "&cこの護衛の契約を解除",
-                List.of(text("gui.release-single-lore", "&7この護衛だけを確認画面へ進めます。"))));
+        inventory.setItem(31, releaseActionItem(player, data, mob));
         inventory.setItem(36, item(Material.ARROW, text("gui.back", "&b一覧に戻る"),
                 List.of(text("gui.back-lore", "&7表示条件を維持して一覧へ戻ります。"))));
         inventory.setItem(40, resultItem(player));
@@ -1192,6 +1170,27 @@ public final class BodyGuardGui implements Listener {
         String name = enabled ? text(key, fallback)
                 : ChatColor.GRAY + ChatColor.stripColor(plugin.color(fallback)) + "（操作不可）";
         return item(enabled ? material : Material.GRAY_DYE, name, fullLore);
+    }
+
+    private ItemStack releaseActionItem(Player player, GuardData data, Mob mob) {
+        boolean allowed = hasPermission(player, "bodyguard.release");
+        boolean enabled = data != null && allowed;
+        List<String> lore = new ArrayList<>();
+        lore.add(text("gui.release-single-lore", "&7この護衛だけを確認画面へ進めます。"));
+        if (!allowed) {
+            lore.add(text("gui.permission-required", "&c権限がありません。"));
+        } else if (data == null) {
+            lore.add(text("gui.unavailable-next", "&7一覧へ戻って手動更新してください。"));
+        } else if (data.isReleasePending()) {
+            lore.add(text("gui.release-already-pending", "&eこの護衛はすでに解除予約中です。"));
+        } else if (mob == null) {
+            lore.add(text("gui.release-will-queue", "&e未読み込みのため、確定すると解除予約になります。"));
+        } else {
+            lore.add(text("gui.click-to-use", "&bクリックして実行"));
+        }
+        String name = enabled ? text("gui.release-single", "&cこの護衛の契約を解除")
+                : text("gui.release-single-disabled", "&7この護衛の契約を解除（操作不可）");
+        return item(enabled ? Material.RED_DYE : Material.GRAY_DYE, name, lore);
     }
 
     private String statusLine(Player player, Mob mob) {

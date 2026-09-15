@@ -689,11 +689,13 @@ public final class GuardManager {
         Location anchor = data.getAnchorLocation();
         if (anchor == null || anchor.getWorld() == null) {
             pdc.remove(keys.anchorWorld());
+            pdc.remove(keys.anchorWorldUuid());
             pdc.remove(keys.anchorX());
             pdc.remove(keys.anchorY());
             pdc.remove(keys.anchorZ());
         } else {
             pdc.set(keys.anchorWorld(), PersistentDataType.STRING, anchor.getWorld().getName());
+            pdc.set(keys.anchorWorldUuid(), PersistentDataType.STRING, anchor.getWorld().getUID().toString());
             pdc.set(keys.anchorX(), PersistentDataType.DOUBLE, anchor.getX());
             pdc.set(keys.anchorY(), PersistentDataType.DOUBLE, anchor.getY());
             pdc.set(keys.anchorZ(), PersistentDataType.DOUBLE, anchor.getZ());
@@ -745,6 +747,7 @@ public final class GuardManager {
         pdc.remove(keys.name());
         pdc.remove(keys.nameNumber());
         pdc.remove(keys.anchorWorld());
+        pdc.remove(keys.anchorWorldUuid());
         pdc.remove(keys.anchorX());
         pdc.remove(keys.anchorY());
         pdc.remove(keys.anchorZ());
@@ -774,10 +777,14 @@ public final class GuardManager {
 
     private Location readAnchorFromPdc(PersistentDataContainer pdc) {
         String worldName = getString(pdc, keys.anchorWorld());
+        UUID worldId = parseUuid(getString(pdc, keys.anchorWorldUuid()));
         Double x = pdc.get(keys.anchorX(), PersistentDataType.DOUBLE);
         Double y = pdc.get(keys.anchorY(), PersistentDataType.DOUBLE);
         Double z = pdc.get(keys.anchorZ(), PersistentDataType.DOUBLE);
-        World world = worldName == null ? null : Bukkit.getWorld(worldName);
+        World world = worldId == null ? null : Bukkit.getWorld(worldId);
+        if (world == null && worldName != null) {
+            world = Bukkit.getWorld(worldName);
+        }
         if (world == null || x == null || y == null || z == null
                 || !Double.isFinite(x) || !Double.isFinite(y) || !Double.isFinite(z)) {
             return null;
