@@ -77,7 +77,7 @@ public final class PlayerListener implements Listener {
         event.setCancelled(true);
         Bukkit.getScheduler().runTask(plugin, () -> {
             if (player.isOnline() && plugin.isMenuOpenerItem(player.getInventory().getItemInMainHand())) {
-                gui.openList(player);
+                gui.openCommandMenu(player);
             }
         });
     }

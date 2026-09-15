@@ -14,6 +14,7 @@ import org.bukkit.inventory.InventoryHolder;
 public final class BodyGuardMenuHolder implements InventoryHolder {
 
     public enum MenuType {
+        COMMAND,
         LIST,
         SUMMON,
         DETAIL,

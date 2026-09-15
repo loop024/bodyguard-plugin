@@ -26,7 +26,7 @@ public final class BodyGuardTabCompleter implements TabCompleter {
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
             return matching(args[0], List.of(
-                    "help", "menu", "item", "summon", "recruit", "release", "releaseall", "list", "tp",
+                    "help", "menu", "command", "item", "summon", "recruit", "release", "releaseall", "list", "tp",
                     "mode", "rename", "heal", "reload"
             ));
         }

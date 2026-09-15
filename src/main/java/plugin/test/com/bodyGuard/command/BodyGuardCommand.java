@@ -66,6 +66,7 @@ public final class BodyGuardCommand implements CommandExecutor {
                 yield true;
             }
             case "menu" -> menu(sender, args);
+            case "command" -> commandMenu(sender, args);
             case "item" -> item(sender, args);
             case "summon" -> summon(sender, args);
             case "recruit" -> recruit(sender, args);
@@ -87,6 +88,7 @@ public final class BodyGuardCommand implements CommandExecutor {
     private void sendHelp(CommandSender sender) {
         messages.sendLines(sender, "help", Collections.emptyMap());
         messages.send(sender, "help-menu", "&f/bg &7- 護衛一覧のGUIを開く");
+        messages.send(sender, "help-command", "&f/bg command &7- 簡易司令メニューを開く");
         messages.send(sender, "help-item", "&f/bg item &7- 右クリックでメニューを開く専用アイテムを受け取る");
     }
 
@@ -129,6 +131,18 @@ public final class BodyGuardCommand implements CommandExecutor {
         }
         messages.send(player, "menu-item-received",
                 "&aBodyGuardメニューアイテムを受け取りました。右クリックで使えます。");
+        return true;
+    }
+
+    private boolean commandMenu(CommandSender sender, String[] args) {
+        if (args.length != 1) {
+            usage(sender, "/bg command");
+            return true;
+        }
+        Player player = requirePlayer(sender);
+        if (player != null && gui != null) {
+            gui.openCommandMenu(player);
+        }
         return true;
     }
 

@@ -129,6 +129,21 @@ public final class BodyGuardGui implements Listener {
                 BodyGuardMenuHolder.GuardSort.STANDARD);
     }
 
+    /** Opens the compact daily-command hub used by the protected menu item. */
+    public void openCommandMenu(Player player) {
+        if (!canUseMenu(player)) {
+            return;
+        }
+        BodyGuardMenuHolder holder = new BodyGuardMenuHolder(
+                BodyGuardMenuHolder.MenuType.COMMAND, player.getUniqueId(), 0, null,
+                null, null, false, BodyGuardMenuHolder.GuardFilter.ALL,
+                BodyGuardMenuHolder.GuardSort.STANDARD, -1, -1);
+        Inventory inventory = createInventory(holder, MANAGEMENT_SIZE,
+                text("gui.command-title", "&3護衛司令メニュー"));
+        renderCommandMenu(inventory, player);
+        player.openInventory(inventory);
+    }
+
     public void openList(Player player, int page) {
         openList(player, page, BodyGuardMenuHolder.GuardFilter.ALL,
                 BodyGuardMenuHolder.GuardSort.STANDARD);
@@ -356,8 +371,11 @@ public final class BodyGuardGui implements Listener {
                         text("gui.confirm-warning", "&c通常のMobに戻り、敵対する可能性があります。"),
                         allowed ? text("gui.click-to-use", "&bクリックして確認")
                                 : text("gui.permission-required", "&c権限がありません。"))));
-        inventory.setItem(18, item(Material.ARROW, text("gui.back", "&b一覧に戻る"),
-                List.of(text("gui.back-lore", "&7表示条件を維持して一覧へ戻ります。"))));
+        inventory.setItem(18, item(Material.ARROW,
+                returnPage < 0 ? text("gui.back-command", "&b司令メニューに戻る")
+                        : text("gui.back", "&b一覧に戻る"),
+                List.of(returnPage < 0 ? text("gui.back-command-lore", "&7司令メニューへ戻ります。")
+                        : text("gui.back-lore", "&7表示条件を維持して一覧へ戻ります。"))));
         inventory.setItem(22, resultItem(player));
         inventory.setItem(26, item(Material.BARRIER, text("gui.close", "&c閉じる"),
                 List.of(text("gui.close-lore", "&7メニューを閉じます。"))));
@@ -414,6 +432,7 @@ public final class BodyGuardGui implements Listener {
             return;
         }
         switch (holder.getType()) {
+            case COMMAND -> handleCommandClick(player, slot);
             case LIST -> handleListClick(player, holder, slot, event.getClick(), event.isShiftClick());
             case SUMMON -> handleSummonClick(player, holder, slot);
             case DETAIL -> handleDetailClick(player, holder, slot);
@@ -502,6 +521,7 @@ public final class BodyGuardGui implements Listener {
             }
             Inventory inventory = player.getOpenInventory().getTopInventory();
             switch (holder.getType()) {
+                case COMMAND -> renderCommandMenu(inventory, player);
                 case LIST -> refreshList(player, holder, inventory);
                 case SUMMON -> refreshSummon(player, holder, inventory);
                 case DETAIL -> refreshDetail(player, holder, inventory);
@@ -522,6 +542,155 @@ public final class BodyGuardGui implements Listener {
             inventory.setItem(CONTENT_START + index, data == null ? invalidGuardIcon() : guardIcon(player, data));
         }
         inventory.setItem(49, resultItem(player));
+    }
+
+    private void renderCommandMenu(Inventory inventory, Player player) {
+        fillInventory(inventory, Material.CYAN_STAINED_GLASS_PANE);
+        CommandCounts counts = commandCounts(player);
+        inventory.setItem(4, item(Material.COMPASS,
+                text("gui.command-summary", "&b&l護衛への一括指示"),
+                List.of(text("gui.command-total", "&7護衛総数: &f{count}体",
+                                Map.of("count", String.valueOf(counts.total()))),
+                        text("gui.command-available", "&7操作可能: &a{count}体",
+                                Map.of("count", String.valueOf(counts.available()))),
+                        text("gui.command-unloaded", "&7未読み込み: &8{count}体",
+                                Map.of("count", String.valueOf(counts.unavailable()))))));
+        inventory.setItem(9, bulkModeItem(player, GuardMode.FOLLOW, Material.LEAD, counts));
+        inventory.setItem(11, bulkModeItem(player, GuardMode.STAY, Material.ANVIL, counts));
+        inventory.setItem(13, bulkModeItem(player, GuardMode.GUARD, Material.SHIELD, counts));
+        inventory.setItem(15, commandActionItem(player, "bodyguard.teleport", Material.COMPASS,
+                "gui.command-recall", "&b全員集合", counts));
+        inventory.setItem(17, commandActionItem(player, "bodyguard.heal", Material.GOLDEN_APPLE,
+                "gui.command-heal", "&a負傷者を回復", counts));
+        inventory.setItem(18, item(Material.ARROW, text("gui.command-list", "&b護衛一覧"),
+                List.of(text("gui.command-list-lore", "&7個別の状態確認と操作を開きます。"))));
+        inventory.setItem(20, permissionItem(player, "bodyguard.summon", Material.NETHER_STAR,
+                "gui.command-summon", "&d新規召喚", text("gui.command-summon-lore", "&7召喚候補を開きます。")));
+        inventory.setItem(22, item(Material.CHEST, text("gui.command-management", "&6管理"),
+                List.of(text("gui.command-management-lore", "&7契約解除などの管理画面を開きます。"))));
+        inventory.setItem(24, item(Material.GRAY_DYE, text("gui.command-settings-disabled", "&7設定（準備中）"),
+                List.of(text("gui.command-settings-disabled-lore", "&7通知設定の実装後に利用できます。"))));
+        inventory.setItem(25, resultItem(player));
+        inventory.setItem(26, item(Material.BARRIER, text("gui.close", "&c閉じる"),
+                List.of(text("gui.close-lore", "&7メニューを閉じます。"))));
+    }
+
+    private ItemStack bulkModeItem(Player player, GuardMode mode, Material material, CommandCounts counts) {
+        boolean allowed = hasPermission(player, "bodyguard.mode");
+        List<String> lore = new ArrayList<>();
+        lore.add(modeDescription(mode));
+        addCommandCounts(lore, counts);
+        lore.add(allowed ? text("gui.click-to-use", "&bクリックして実行")
+                : text("gui.permission-required", "&c権限がありません。"));
+        return item(allowed ? material : Material.GRAY_DYE,
+                allowed ? text("gui.command-mode", "&b全員{mode}", Map.of("mode", mode.japaneseName()))
+                        : text("gui.command-mode-disabled", "&7全員{mode}（操作不可）",
+                                Map.of("mode", mode.japaneseName())), lore);
+    }
+
+    private ItemStack commandActionItem(Player player, String permission, Material material,
+                                        String key, String fallback, CommandCounts counts) {
+        boolean allowed = hasPermission(player, permission);
+        List<String> lore = new ArrayList<>();
+        addCommandCounts(lore, counts);
+        lore.add(allowed ? text("gui.click-to-use", "&bクリックして実行")
+                : text("gui.permission-required", "&c権限がありません。"));
+        return item(allowed ? material : Material.GRAY_DYE,
+                allowed ? text(key, fallback)
+                        : ChatColor.GRAY + ChatColor.stripColor(text(key, fallback)) + "（操作不可）", lore);
+    }
+
+    private void addCommandCounts(List<String> lore, CommandCounts counts) {
+        lore.add(text("gui.command-target-counts", "&7対象: &f{total}体 &8/ &a操作可能: {available}体 &8/ &7未読み込み: {unavailable}体",
+                Map.of("total", String.valueOf(counts.total()),
+                        "available", String.valueOf(counts.available()),
+                        "unavailable", String.valueOf(counts.unavailable()))));
+    }
+
+    private CommandCounts commandCounts(Player player) {
+        List<GuardData> guards = manager.getGuards(player.getUniqueId());
+        int available = 0;
+        for (GuardData data : guards) {
+            if (manager.getLoadedMob(data) != null) {
+                available++;
+            }
+        }
+        return new CommandCounts(guards.size(), available, guards.size() - available);
+    }
+
+    private void handleCommandClick(Player player, int slot) {
+        switch (slot) {
+            case 9 -> changeAllModes(player, GuardMode.FOLLOW);
+            case 11 -> changeAllModes(player, GuardMode.STAY);
+            case 13 -> changeAllModes(player, GuardMode.GUARD);
+            case 15 -> recallFromCommandMenu(player);
+            case 17 -> healFromCommandMenu(player);
+            case 18 -> transition(player, () -> openList(player));
+            case 20 -> {
+                if (hasPermission(player, "bodyguard.summon")) {
+                    transition(player, () -> openSummon(player, 0, BodyGuardMenuHolder.GuardFilter.ALL,
+                            BodyGuardMenuHolder.GuardSort.STANDARD));
+                } else {
+                    showResult(player, "gui-no-permission", "&cこの操作を使う権限がありません。", Map.of(), false);
+                }
+            }
+            case 22 -> transition(player, () -> openManagement(player, -1,
+                    BodyGuardMenuHolder.GuardFilter.ALL, BodyGuardMenuHolder.GuardSort.STANDARD));
+            case 26 -> player.closeInventory();
+            default -> {
+                // Summary, settings placeholder, result, and filler slots do nothing.
+            }
+        }
+    }
+
+    private void changeAllModes(Player player, GuardMode mode) {
+        if (!hasPermission(player, "bodyguard.mode")) {
+            showResult(player, "gui-no-permission", "&cこの操作を使う権限がありません。", Map.of(), false);
+            return;
+        }
+        CommandCounts before = commandCounts(player);
+        int changed = 0;
+        for (GuardData data : manager.getGuards(player.getUniqueId())) {
+            if (manager.setMode(player.getUniqueId(), data.getGuardId(), mode)) {
+                changed++;
+            }
+        }
+        showCommandResult(player, "gui-command-mode-result",
+                "&a成功: {changed}体 &7/ &8未読み込み: {unavailable}体 &7/ &c失敗: {failed}体 &7（{mode}）",
+                changed, before.unavailable(), before.available() - changed, Map.of("mode", mode.japaneseName()));
+    }
+
+    private void recallFromCommandMenu(Player player) {
+        if (!hasPermission(player, "bodyguard.teleport")) {
+            showResult(player, "gui-no-permission", "&cこの操作を使う権限がありません。", Map.of(), false);
+            return;
+        }
+        CommandCounts before = commandCounts(player);
+        int changed = manager.teleportGuards(player);
+        showCommandResult(player, "gui-command-recall-result",
+                "&a成功: {changed}体 &7/ &8未読み込み: {unavailable}体 &7/ &c失敗: {failed}体",
+                changed, before.unavailable(), before.available() - changed, Map.of());
+    }
+
+    private void healFromCommandMenu(Player player) {
+        if (!hasPermission(player, "bodyguard.heal")) {
+            showResult(player, "gui-no-permission", "&cこの操作を使う権限がありません。", Map.of(), false);
+            return;
+        }
+        CommandCounts before = commandCounts(player);
+        int changed = manager.healGuards(player);
+        showCommandResult(player, "gui-command-heal-result",
+                "&a成功: {changed}体 &7/ &8未読み込み: {unavailable}体 &7/ &e全回復済み・対象外: {failed}体",
+                changed, before.unavailable(), before.available() - changed, Map.of());
+    }
+
+    private void showCommandResult(Player player, String key, String fallback,
+                                   int changed, int unavailable, int failed, Map<String, String> extra) {
+        Map<String, String> placeholders = new HashMap<>(extra);
+        placeholders.put("changed", String.valueOf(changed));
+        placeholders.put("unavailable", String.valueOf(Math.max(0, unavailable)));
+        placeholders.put("failed", String.valueOf(Math.max(0, failed)));
+        showResult(player, key, fallback, placeholders, changed > 0);
     }
 
     private void refreshSummon(Player player, BodyGuardMenuHolder holder, Inventory inventory) {
@@ -859,8 +1028,13 @@ public final class BodyGuardGui implements Listener {
                     showResult(player, "gui-no-permission", "&cこの操作を使う権限がありません。", Map.of(), false);
                 }
             }
-            case 18 -> transition(player, () -> openList(player, holder.getPage(),
-                    holder.getFilter(), holder.getSort()));
+            case 18 -> transition(player, () -> {
+                if (holder.getPage() < 0) {
+                    openCommandMenu(player);
+                } else {
+                    openList(player, holder.getPage(), holder.getFilter(), holder.getSort());
+                }
+            });
             case 26 -> player.closeInventory();
             default -> {
                 // Summary, result, and filler slots intentionally do nothing.
@@ -1498,6 +1672,7 @@ public final class BodyGuardGui implements Listener {
                 || key.endsWith("-full")
                 || key.contains("unavailable")
                 || key.contains("unloaded")
+                || key.startsWith("gui-command-")
                 || key.equals("gui-release-none"));
     }
 
@@ -1519,6 +1694,7 @@ public final class BodyGuardGui implements Listener {
             return;
         }
         switch (holder.getType()) {
+            case COMMAND -> top.setItem(25, resultItem(player));
             case LIST, SUMMON -> top.setItem(49, resultItem(player));
             case DETAIL -> top.setItem(40, resultItem(player));
             case MANAGEMENT -> top.setItem(22, resultItem(player));
@@ -1632,6 +1808,9 @@ public final class BodyGuardGui implements Listener {
     }
 
     private record HealthInfo(double current, double maximum, double ratio) {
+    }
+
+    private record CommandCounts(int total, int available, int unavailable) {
     }
 
     private enum ResultTone {
