@@ -620,13 +620,16 @@ public final class GuardManager {
         for (GuardData data : new ArrayList<>(guards.values())) {
             Entity entity = Bukkit.getEntity(data.getGuardId());
             if (entity == null) {
-                // null means the entity is probably in an unloaded chunk; retain its registry entry.
+                // A null lookup alone is ambiguous. It is safe to remove the record only
+                // when the last known chunk is loaded and the UUID is still absent there.
+                if (isDefinitelyMissing(data)) {
+                    removeMissingRecord(data);
+                    changed = true;
+                }
                 continue;
             }
             if (!(entity instanceof Mob) || entity.isDead() || !entity.isValid() || getGuardData(entity) == null) {
-                guards.remove(data.getGuardId());
-                clearCompanion(data);
-                dirty = true;
+                removeMissingRecord(data);
                 changed = true;
             } else {
                 data.setLastLocation(entity.getLocation());
@@ -650,8 +653,47 @@ public final class GuardManager {
                 changed = true;
             }
         }
+        // Once this chunk is loaded, saved records whose last confirmed position is
+        // inside it can be checked without guessing or force-loading another chunk.
+        for (GuardData data : new ArrayList<>(guards.values())) {
+            if (isLastKnownChunk(data, chunk) && isDefinitelyMissing(data)) {
+                removeMissingRecord(data);
+                changed = true;
+            }
+        }
         if (changed) {
             save();
+        }
+    }
+
+    private boolean isDefinitelyMissing(GuardData data) {
+        if (data == null || Bukkit.getEntity(data.getGuardId()) != null) {
+            return false;
+        }
+        Location last = data.getLastLocation();
+        World world = last == null ? null : last.getWorld();
+        return world != null && world.isChunkLoaded(last.getBlockX() >> 4, last.getBlockZ() >> 4);
+    }
+
+    private boolean isLastKnownChunk(GuardData data, Chunk chunk) {
+        Location last = data == null ? null : data.getLastLocation();
+        return last != null && last.getWorld() != null
+                && last.getWorld().getUID().equals(chunk.getWorld().getUID())
+                && (last.getBlockX() >> 4) == chunk.getX()
+                && (last.getBlockZ() >> 4) == chunk.getZ();
+    }
+
+    private void removeMissingRecord(GuardData data) {
+        if (data == null || guards.remove(data.getGuardId()) == null) {
+            return;
+        }
+        clearCompanion(data);
+        dirty = true;
+        Player owner = Bukkit.getPlayer(data.getOwnerId());
+        if (owner != null && owner.isOnline()) {
+            plugin.getMessages().send(owner, "guard-missing-removed",
+                    "&e存在を確認できなくなった {name} を護衛一覧から整理しました。",
+                    Map.of("name", data.getName()));
         }
     }
 
