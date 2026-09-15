@@ -24,8 +24,11 @@ public final class BodyGuardReleaseMenu {
 
     public Inventory create(BodyGuardMenuHolder holder, boolean releaseAll,
                             String targetName, int targetCount) {
-        String title = text(releaseAll ? "gui.confirm-all-title" : "gui.confirm-single-title",
-                releaseAll ? "&4全解除の確認" : "&4解除の確認");
+        boolean deleteAll = holder.isDeleteAll();
+        String title = deleteAll
+                ? text("gui.confirm-delete-title", "&4完全削除の確認")
+                : text(releaseAll ? "gui.confirm-all-title" : "gui.confirm-single-title",
+                        releaseAll ? "&4全解除の確認" : "&4解除の確認");
         Inventory inventory = Bukkit.createInventory(holder, SIZE, title);
         holder.setInventory(inventory);
         fill(inventory);
@@ -35,14 +38,22 @@ public final class BodyGuardReleaseMenu {
                 Map.of("count", String.valueOf(targetCount)))
                 : text("gui.confirm-target-name", "&f対象: &e{name}",
                 Map.of("name", targetName == null ? "" : targetName));
-        inventory.setItem(4, item(Material.BOOK, text("gui.confirm-target", "&e解除対象"),
-                List.of(target, text("gui.confirm-warning", "&c通常のMobに戻り、敵対する可能性があります。"))));
+        String warning = deleteAll
+                ? text("gui.confirm-delete-warning", "&4Mob自体を完全に削除します。元に戻せません。")
+                : text("gui.confirm-warning", "&c通常のMobに戻り、敵対する可能性があります。");
+        inventory.setItem(4, item(Material.BOOK, text("gui.confirm-target", "&e対象"),
+                List.of(target, warning)));
         inventory.setItem(13, item(Material.REDSTONE, text("gui.confirm-warning-title", "&e注意"),
-                List.of(text("gui.confirm-warning", "&c通常のMobに戻り、敵対する可能性があります。"),
+                List.of(warning,
                         text("gui.confirm-snapshot", "&7この画面を開いた時点のUUIDだけを対象にします。"),
-                        text("gui.confirm-loaded-note", "&7未読み込みの護衛は解除予約になり、読み込み時に解除されます。"))));
-        inventory.setItem(11, item(Material.RED_CONCRETE, text("gui.confirm-release", "&c解除する"),
-                List.of(text("gui.confirm-release-lore", "&7解除を実行します。"))));
+                        deleteAll
+                                ? text("gui.confirm-delete-loaded-note", "&7未読み込みの護衛は削除予約になり、読み込み時に消去されます。")
+                                : text("gui.confirm-loaded-note", "&7未読み込みの護衛は解除予約になり、読み込み時に解除されます。"))));
+        inventory.setItem(11, item(Material.RED_CONCRETE,
+                deleteAll ? text("gui.confirm-delete", "&4完全削除する")
+                        : text("gui.confirm-release", "&c解除する"),
+                List.of(deleteAll ? text("gui.confirm-delete-lore", "&c選択した護衛Mobを完全に消去します。")
+                        : text("gui.confirm-release-lore", "&7解除を実行します。"))));
         inventory.setItem(15, item(Material.BLUE_CONCRETE, text("gui.confirm-cancel", "&bキャンセル"),
                 List.of(text("gui.confirm-cancel-lore", "&7解除せずに戻ります。"))));
         inventory.setItem(22, item(Material.ARROW,

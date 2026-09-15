@@ -77,6 +77,7 @@ public final class BodyGuardMenuHolder implements InventoryHolder {
     private final List<UUID> guardIds;
     private final List<EntityType> mobTypes;
     private final boolean releaseAll;
+    private final boolean deleteAll;
     private final GuardFilter filter;
     private final GuardSort sort;
     private final int totalGuardCount;
@@ -87,12 +88,20 @@ public final class BodyGuardMenuHolder implements InventoryHolder {
                                Collection<UUID> guardIds, Collection<EntityType> mobTypes,
                                boolean releaseAll) {
         this(type, ownerId, page, guardId, guardIds, mobTypes, releaseAll,
-                GuardFilter.ALL, GuardSort.STANDARD, -1, -1);
+                false, GuardFilter.ALL, GuardSort.STANDARD, -1, -1);
     }
 
     public BodyGuardMenuHolder(MenuType type, UUID ownerId, int page, UUID guardId,
                                Collection<UUID> guardIds, Collection<EntityType> mobTypes,
                                boolean releaseAll, GuardFilter filter, GuardSort sort,
+                               int totalGuardCount, int filteredGuardCount) {
+        this(type, ownerId, page, guardId, guardIds, mobTypes, releaseAll, false,
+                filter, sort, totalGuardCount, filteredGuardCount);
+    }
+
+    public BodyGuardMenuHolder(MenuType type, UUID ownerId, int page, UUID guardId,
+                               Collection<UUID> guardIds, Collection<EntityType> mobTypes,
+                               boolean releaseAll, boolean deleteAll, GuardFilter filter, GuardSort sort,
                                int totalGuardCount, int filteredGuardCount) {
         this.type = type;
         this.ownerId = ownerId;
@@ -101,6 +110,7 @@ public final class BodyGuardMenuHolder implements InventoryHolder {
         this.guardIds = immutableCopy(guardIds);
         this.mobTypes = immutableCopy(mobTypes);
         this.releaseAll = releaseAll;
+        this.deleteAll = deleteAll;
         this.filter = filter == null ? GuardFilter.ALL : filter;
         this.sort = sort == null ? GuardSort.STANDARD : sort;
         this.totalGuardCount = totalGuardCount;
@@ -141,6 +151,10 @@ public final class BodyGuardMenuHolder implements InventoryHolder {
 
     public boolean isReleaseAll() {
         return releaseAll;
+    }
+
+    public boolean isDeleteAll() {
+        return deleteAll;
     }
 
     public GuardFilter getFilter() {

@@ -32,6 +32,9 @@ permissions:
   bodyguard.releaseall:
     description: Allows releasing all owned BodyGuards
     default: true
+  bodyguard.deleteall:
+    description: Allows permanently deleting all owned BodyGuards
+    default: true
   bodyguard.mode:
     description: Allows changing BodyGuard modes
     default: true

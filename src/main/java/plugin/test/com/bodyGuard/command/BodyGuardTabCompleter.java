@@ -26,7 +26,7 @@ public final class BodyGuardTabCompleter implements TabCompleter {
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
             return matching(args[0], List.of(
-                    "help", "menu", "command", "item", "summon", "recruit", "release", "releaseall", "list", "tp",
+                    "help", "menu", "command", "item", "summon", "recruit", "release", "releaseall", "deleteall", "list", "tp",
                     "mode", "rename", "heal", "reload"
             ));
         }
@@ -47,6 +47,14 @@ public final class BodyGuardTabCompleter implements TabCompleter {
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("releaseall")) {
             return matching(args[1], List.of("confirm"));
+        }
+        if (args.length == 2 && args[0].equalsIgnoreCase("deleteall")) {
+            return matching(args[1], sender.hasPermission("bodyguard.admin")
+                    ? List.of("confirm", "server") : List.of("confirm"));
+        }
+        if (args.length == 3 && args[0].equalsIgnoreCase("deleteall")
+                && args[1].equalsIgnoreCase("server") && sender.hasPermission("bodyguard.admin")) {
+            return matching(args[2], List.of("confirm"));
         }
         return List.of();
     }

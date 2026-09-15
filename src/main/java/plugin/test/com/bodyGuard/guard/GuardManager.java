@@ -211,12 +211,12 @@ public final class GuardManager {
                 dirty = true;
                 return null;
             }
-            if (data.isReleasePending() && entity instanceof Mob mob) {
-                finalizePendingRelease(data, mob);
-                return null;
-            }
             if (data.isDeletionPending() && entity instanceof Mob mob) {
                 finalizePendingDeletion(data, mob);
+                return null;
+            }
+            if (data.isReleasePending() && entity instanceof Mob mob) {
+                finalizePendingRelease(data, mob);
                 return null;
             }
             return data;
@@ -304,6 +304,10 @@ public final class GuardManager {
         for (UUID guardId : new ArrayList<>(guardIds)) {
             GuardData data = getGuardData(guardId);
             if (data == null || !ownerId.equals(data.getOwnerId())) {
+                failed++;
+                continue;
+            }
+            if (data.isDeletionPending()) {
                 failed++;
                 continue;
             }

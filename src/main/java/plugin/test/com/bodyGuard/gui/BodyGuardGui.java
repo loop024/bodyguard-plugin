@@ -458,6 +458,13 @@ public final class BodyGuardGui implements Listener {
                         text("gui.confirm-warning", "&c通常のMobに戻り、敵対する可能性があります。"),
                         allowed ? text("gui.click-to-use", "&bクリックして確認")
                                 : text("gui.permission-required", "&c権限がありません。"))));
+        boolean deleteAllowed = hasPermission(player, "bodyguard.deleteall");
+        inventory.setItem(15, item(deleteAllowed ? Material.LAVA_BUCKET : Material.GRAY_DYE,
+                deleteAllowed ? text("gui.delete-all", "&4自分の護衛Mobをすべて完全削除")
+                        : ChatColor.GRAY + "自分の護衛Mobをすべて完全削除",
+                List.of(text("gui.delete-all-lore", "&cMob自体を消去します。この操作は元に戻せません。"),
+                        deleteAllowed ? text("gui.click-to-use", "&bクリックして確認")
+                                : text("gui.permission-required", "&c権限がありません。"))));
         inventory.setItem(18, item(Material.ARROW,
                 returnPage < 0 ? text("gui.back-command", "&b司令メニューに戻る")
                         : text("gui.back", "&b一覧に戻る"),
@@ -487,6 +494,30 @@ public final class BodyGuardGui implements Listener {
             return;
         }
         openReleaseConfirmation(player, snapshot, true, returnPage, null, snapshot.size(), filter, sort);
+    }
+
+    private void openAllDeleteConfirmation(Player player, int returnPage,
+                                            BodyGuardMenuHolder.GuardFilter filter,
+                                            BodyGuardMenuHolder.GuardSort sort) {
+        if (!canUseMenu(player)) {
+            return;
+        }
+        if (!hasPermission(player, "bodyguard.deleteall")) {
+            showResult(player, "gui-no-permission", "&cこの操作を使う権限がありません。", Map.of(), false);
+            return;
+        }
+        List<UUID> snapshot = manager.getGuards(player.getUniqueId()).stream()
+                .map(GuardData::getGuardId).toList();
+        if (snapshot.isEmpty()) {
+            showResult(player, "gui-delete-none", "&e削除対象の護衛がいません。", Map.of(), false);
+            transition(player, () -> openManagement(player, returnPage, filter, sort));
+            return;
+        }
+        BodyGuardMenuHolder holder = new BodyGuardMenuHolder(
+                BodyGuardMenuHolder.MenuType.RELEASE_CONFIRM, player.getUniqueId(), returnPage,
+                null, snapshot, null, true, true, filter, sort, -1, -1);
+        Inventory inventory = releaseMenu.create(holder, true, null, snapshot.size());
+        player.openInventory(inventory);
     }
 
     private void openReleaseConfirmation(Player player, Collection<UUID> guardIds,
@@ -1213,6 +1244,14 @@ public final class BodyGuardGui implements Listener {
                     showResult(player, "gui-no-permission", "&cこの操作を使う権限がありません。", Map.of(), false);
                 }
             }
+            case 15 -> {
+                if (hasPermission(player, "bodyguard.deleteall")) {
+                    transition(player, () -> openAllDeleteConfirmation(player, holder.getPage(),
+                            holder.getFilter(), holder.getSort()));
+                } else {
+                    showResult(player, "gui-no-permission", "&cこの操作を使う権限がありません。", Map.of(), false);
+                }
+            }
             case 18 -> transition(player, () -> {
                 if (holder.getPage() < 0) {
                     openCommandMenu(player);
@@ -1241,9 +1280,27 @@ public final class BodyGuardGui implements Listener {
 
     private void handleConfirmationClick(Player player, BodyGuardMenuHolder holder, int slot) {
         if (slot == 11) {
-            String permission = holder.isReleaseAll() ? "bodyguard.releaseall" : "bodyguard.release";
+            String permission = holder.isDeleteAll() ? "bodyguard.deleteall"
+                    : holder.isReleaseAll() ? "bodyguard.releaseall" : "bodyguard.release";
             if (!hasPermission(player, permission)) {
                 showResult(player, "gui-no-permission", "&cこの操作を使う権限がありません。", Map.of(), false);
+                return;
+            }
+            if (holder.isDeleteAll()) {
+                GuardManager.DeleteResult result = manager.deleteGuards(
+                        player.getUniqueId(), holder.getGuardIds());
+                if (result.affected() == 0) {
+                    showResult(player, "gui-delete-none", "&e完全削除または削除予約にできる護衛がありません。",
+                            Map.of(), false);
+                } else {
+                    showResult(player, "gui-delete-summary",
+                            "&c完全削除: &f{deleted}体 &7/ &e削除予約: &f{queued}体 &7/ &c失敗: &f{failed}体",
+                            Map.of("deleted", String.valueOf(result.deleted()),
+                                    "queued", String.valueOf(result.queued()),
+                                    "failed", String.valueOf(result.failed())), true);
+                }
+                transition(player, () -> openList(player, holder.getPage(),
+                        holder.getFilter(), holder.getSort()));
                 return;
             }
             GuardManager.ReleaseResult result = manager.releaseGuards(
@@ -1605,13 +1662,15 @@ public final class BodyGuardGui implements Listener {
 
     private ItemStack releaseActionItem(Player player, GuardData data, Mob mob) {
         boolean allowed = hasPermission(player, "bodyguard.release");
-        boolean enabled = data != null && allowed;
+        boolean enabled = data != null && !data.isDeletionPending() && allowed;
         List<String> lore = new ArrayList<>();
         lore.add(text("gui.release-single-lore", "&7この護衛だけを確認画面へ進めます。"));
         if (!allowed) {
             lore.add(text("gui.permission-required", "&c権限がありません。"));
         } else if (data == null) {
             lore.add(text("gui.unavailable-next", "&7一覧へ戻って手動更新してください。"));
+        } else if (data.isDeletionPending()) {
+            lore.add(text("gui.delete-already-pending", "&eこの護衛はすでに削除予約中です。"));
         } else if (data.isReleasePending()) {
             lore.add(text("gui.release-already-pending", "&eこの護衛はすでに解除予約中です。"));
         } else if (mob == null) {
@@ -1640,6 +1699,11 @@ public final class BodyGuardGui implements Listener {
     }
 
     private void addUnavailableLore(List<String> lore, GuardData data) {
+        if (data != null && data.isDeletionPending()) {
+            lore.add(text("gui.guard-deletion-pending", "&7状態: &c削除予約中"));
+            lore.add(text("gui.guard-deletion-pending-next", "&7チャンクが自然に読み込まれた時点で完全削除します。"));
+            return;
+        }
         if (data != null && data.isReleasePending()) {
             lore.add(text("gui.guard-release-pending", "&7状態: &e解除予約中"));
             lore.add(text("gui.guard-release-pending-next", "&7チャンクが自然に読み込まれた時点で解除します。"));

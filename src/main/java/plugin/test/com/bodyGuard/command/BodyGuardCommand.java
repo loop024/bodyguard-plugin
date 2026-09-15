@@ -72,6 +72,7 @@ public final class BodyGuardCommand implements CommandExecutor {
             case "recruit" -> recruit(sender, args);
             case "release" -> release(sender, args);
             case "releaseall" -> releaseAll(sender, args);
+            case "deleteall" -> deleteAll(sender, args);
             case "list" -> list(sender, args);
             case "tp" -> teleport(sender, args);
             case "mode" -> mode(sender, args);
@@ -339,6 +340,47 @@ public final class BodyGuardCommand implements CommandExecutor {
         return true;
     }
 
+    private boolean deleteAll(CommandSender sender, String[] args) {
+        boolean global = args.length >= 2 && args[1].equalsIgnoreCase("server");
+        if (global) {
+            if (!sender.hasPermission("bodyguard.admin")) {
+                messages.send(sender, "no-permission");
+                return true;
+            }
+            if (args.length != 3 || !args[2].equalsIgnoreCase("confirm")) {
+                messages.send(sender, "deleteall-server-confirm");
+                return true;
+            }
+            GuardManager.DeleteResult result = manager.deleteAllGlobally();
+            sendDeleteResult(sender, result, true);
+            return true;
+        }
+
+        if (!requirePermission(sender, "bodyguard.deleteall")) {
+            return true;
+        }
+        Player player = requirePlayer(sender);
+        if (player == null) {
+            return true;
+        }
+        if (args.length != 2 || !args[1].equalsIgnoreCase("confirm")) {
+            messages.send(sender, "deleteall-confirm");
+            return true;
+        }
+        sendDeleteResult(sender, manager.deleteAll(player.getUniqueId()), false);
+        return true;
+    }
+
+    private void sendDeleteResult(CommandSender sender, GuardManager.DeleteResult result, boolean global) {
+        messages.send(sender, global ? "deleteall-server-summary" : "deleteall-summary",
+                global
+                        ? "&cサーバー全体の削除完了: &f{deleted}体 &7/ &e削除予約: &f{queued}体 &7/ &c失敗: &f{failed}体"
+                        : "&c完全削除: &f{deleted}体 &7/ &e削除予約: &f{queued}体 &7/ &c失敗: &f{failed}体",
+                Map.of("deleted", String.valueOf(result.deleted()),
+                        "queued", String.valueOf(result.queued()),
+                        "failed", String.valueOf(result.failed())));
+    }
+
     private boolean list(CommandSender sender, String[] args) {
         if (!requirePermission(sender, "bodyguard.use")) {
             return true;
@@ -362,7 +404,9 @@ public final class BodyGuardCommand implements CommandExecutor {
             Mob loadedMob = manager.getLoadedMob(data);
             String health = loadedMob == null ? "" : EntityUtil.healthText(loadedMob);
             String status;
-            if (data.isReleasePending()) {
+            if (data.isDeletionPending()) {
+                status = messages.get("guard-status-deletion-pending", "削除予約中");
+            } else if (data.isReleasePending()) {
                 status = messages.get("guard-status-release-pending", "解除予約中");
             } else if (loadedMob == null) {
                 status = messages.get("gui.guard-status-unknown", "状態を確認できません");
