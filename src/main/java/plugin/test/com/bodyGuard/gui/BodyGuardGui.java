@@ -521,7 +521,7 @@ public final class BodyGuardGui implements Listener {
             case COMMAND -> handleCommandClick(player, slot);
             case TUTORIAL -> handleTutorialClick(player, holder, slot);
             case LIST -> handleListClick(player, holder, slot, event.getClick(), event.isShiftClick());
-            case SUMMON -> handleSummonClick(player, holder, slot);
+            case SUMMON -> handleSummonClick(player, holder, slot, event.getClick());
             case DETAIL -> handleDetailClick(player, holder, slot);
             case MANAGEMENT -> handleManagementClick(player, holder, slot);
             case RELEASE_CONFIRM -> handleConfirmationClick(player, holder, slot);
@@ -1022,16 +1022,22 @@ public final class BodyGuardGui implements Listener {
         transition(player, () -> openList(player, holder.getPage(), holder.getFilter(), holder.getSort()));
     }
 
-    private void handleSummonClick(Player player, BodyGuardMenuHolder holder, int slot) {
+    private void handleSummonClick(Player player, BodyGuardMenuHolder holder, int slot, ClickType click) {
         if (slot < PREVIOUS_SLOT) {
             int index = slot - CONTENT_START;
-            if (index >= 0 && index < holder.getMobTypes().size()) {
+            if (index >= 0 && index < holder.getMobTypes().size()
+                    && (click.isLeftClick() || click.isRightClick())) {
                 EntityType type = holder.getMobTypes().get(index);
                 boolean summoned = command.summonFromMenu(player, type);
                 if (summoned) {
                     showResult(player, "gui-summon-result", "&a{mob}を召喚しました。",
                             Map.of("mob", mobName(type)), true);
-                    transition(player, () -> openList(player, 0, holder.getFilter(), holder.getSort()));
+                    if (click.isRightClick()) {
+                        transition(player, () -> openList(player, 0, holder.getFilter(), holder.getSort()));
+                    } else {
+                        // Keep the candidate screen open so another type can be summoned immediately.
+                        refreshSummon(player, holder, player.getOpenInventory().getTopInventory());
+                    }
                 } else {
                     showResult(player, summonFailureKey(player, type), summonFailureFallback(player, type),
                             Map.of("limit", String.valueOf(plugin.getMaxGuardsPerPlayer())), false);
@@ -1405,7 +1411,8 @@ public final class BodyGuardGui implements Listener {
         } else if (full) {
             lore.add(text("gui.summon-full", "&c上限に達しているため召喚できません。"));
         } else {
-            lore.add(text("gui.summon-click", "&aクリック: このMobを召喚"));
+            lore.add(text("gui.summon-left-click", "&a左クリック: 召喚して候補画面に残る"));
+            lore.add(text("gui.summon-right-click", "&b右クリック: 召喚して一覧へ戻る"));
         }
         return item(enabled ? spawnEgg(type) : Material.GRAY_DYE,
                 (enabled ? ChatColor.AQUA : ChatColor.GRAY) + mobName(type), lore);
