@@ -235,7 +235,8 @@ public final class BodyGuardCommand implements CommandExecutor {
             return false;
         }
 
-        Location spawnLocation = summonLocation(player);
+        Location spawnLocation = summonLocation(player,
+                manager.countGuards(player.getUniqueId()));
         World world = player.getWorld();
         Mob mob;
         try {
@@ -626,7 +627,7 @@ public final class BodyGuardCommand implements CommandExecutor {
         return messages.color(messages.get(key, fallback));
     }
 
-    private Location summonLocation(Player player) {
+    private Location summonLocation(Player player, int summonIndex) {
         Location base = player.getLocation().clone();
         Vector direction = base.getDirection();
         direction.setY(0.0);
@@ -636,7 +637,10 @@ public final class BodyGuardCommand implements CommandExecutor {
             direction.normalize();
         }
         Location requested = base.add(direction.multiply(2.5));
-        Location safe = LocationUtil.findSafeLocation(requested, 0);
+        // Consecutive summons must not occupy exactly the same block. Besides
+        // obscuring the mobs, a dense stack is killed by Minecraft's entity
+        // cramming rule when an operator summons beyond the normal limit.
+        Location safe = LocationUtil.findSafeLocation(requested, summonIndex);
         return safe == null ? requested : safe;
     }
 

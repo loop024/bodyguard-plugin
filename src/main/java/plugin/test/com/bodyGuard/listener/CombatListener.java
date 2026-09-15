@@ -110,6 +110,14 @@ public final class CombatListener implements Listener {
     /** Covers indirect damage sources such as an explosion caused by a configurable guard type. */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onEntityDamage(EntityDamageEvent event) {
+        // Operators can intentionally own more guards than the configured limit.
+        // Those guards must not kill each other merely by gathering around their
+        // owner or by being summoned quickly into a confined area.
+        if (event.getCause() == EntityDamageEvent.DamageCause.CRAMMING
+                && manager.getGuardData(event.getEntity()) != null) {
+            event.setCancelled(true);
+            return;
+        }
         if (event instanceof EntityDamageByEntityEvent) {
             return;
         }
