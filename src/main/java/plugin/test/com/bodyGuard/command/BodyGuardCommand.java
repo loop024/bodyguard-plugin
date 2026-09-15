@@ -441,10 +441,20 @@ public final class BodyGuardCommand implements CommandExecutor {
             return true;
         }
         manager.setMode(data, mob, mode, player.getLocation());
-        messages.send(sender, "mode-changed", Map.of(
-                "name", data.getName(),
-                "mode", mode.displayName()
-        ));
+        if (mode == GuardMode.GUARD) {
+            Location point = data.getAnchorLocation();
+            messages.send(sender, "guard-point-set", Map.of(
+                    "name", data.getName(),
+                    "world", point.getWorld() == null ? "不明" : point.getWorld().getName(),
+                    "x", String.valueOf(point.getBlockX()),
+                    "y", String.valueOf(point.getBlockY()),
+                    "z", String.valueOf(point.getBlockZ())));
+        } else {
+            messages.send(sender, "mode-changed", Map.of(
+                    "name", data.getName(),
+                    "mode", mode.displayName()
+            ));
+        }
         return true;
     }
 

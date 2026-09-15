@@ -978,8 +978,14 @@ public final class BodyGuardGui implements Listener {
             showUnavailableAndReturn(player, holder);
             return;
         }
-        showResult(player, "gui-mode-changed", "&a{name}：&f{mode} &aに変更しました。",
-                Map.of("name", plugin.color(data.getName()), "mode", next.japaneseName()), true);
+        if (next == GuardMode.GUARD) {
+            showResult(player, "gui-guard-point-set",
+                    "&a{name}の警備地点を &f{world} {x}, {y}, {z} &aに設定しました。",
+                    guardPointPlaceholders(player, data), true);
+        } else {
+            showResult(player, "gui-mode-changed", "&a{name}：&f{mode} &aに変更しました。",
+                    Map.of("name", plugin.color(data.getName()), "mode", next.japaneseName()), true);
+        }
         reopenList(player, holder);
     }
 
@@ -1087,8 +1093,14 @@ public final class BodyGuardGui implements Listener {
                 showUnavailableAndReturn(player, holder);
                 return;
             }
-            showResult(player, "gui-mode-changed", "&a{name}：&f{mode} &aに変更しました。",
-                    Map.of("name", plugin.color(data.getName()), "mode", mode.japaneseName()), true);
+            if (mode == GuardMode.GUARD) {
+                showResult(player, "gui-guard-point-set",
+                        "&a{name}の警備地点を &f{world} {x}, {y}, {z} &aに設定しました。",
+                        guardPointPlaceholders(player, data), true);
+            } else {
+                showResult(player, "gui-mode-changed", "&a{name}：&f{mode} &aに変更しました。",
+                        Map.of("name", plugin.color(data.getName()), "mode", mode.japaneseName()), true);
+            }
             transition(player, () -> openDetails(player, holder.getGuardId(), holder.getPage(),
                     holder.getFilter(), holder.getSort()));
             return;
@@ -1470,6 +1482,19 @@ public final class BodyGuardGui implements Listener {
             case STAY -> text("gui.mode-stay", "&7その場で待機し、必要時に守ります。");
             case GUARD -> text("gui.mode-guard", "&7あなたが立っている地点を中心に、範囲内だけを警備します。");
         };
+    }
+
+    private Map<String, String> guardPointPlaceholders(Player player, GuardData data) {
+        Location anchor = data.getAnchorLocation();
+        if (anchor == null) {
+            anchor = player.getLocation();
+        }
+        return Map.of(
+                "name", plugin.color(data.getName()),
+                "world", anchor.getWorld() == null ? "不明" : anchor.getWorld().getName(),
+                "x", String.valueOf(anchor.getBlockX()),
+                "y", String.valueOf(anchor.getBlockY()),
+                "z", String.valueOf(anchor.getBlockZ()));
     }
 
     private void renderDetail(Inventory inventory, Player player, GuardData data) {
