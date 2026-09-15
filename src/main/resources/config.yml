@@ -9,6 +9,11 @@ storage:
 limits:
   max-guards-per-player: 10
 
+guard-management:
+  # Keep guards belonging to online owners loaded so health, location and actions
+  # remain available. Many guards spread across many chunks will use more memory.
+  keep-chunks-loaded-while-owner-online: true
+
 # Right-click this item in the main hand to open the BodyGuard menu.
 # Any valid Minecraft material name can be used, for example: COMPASS, BLAZE_ROD.
 menu-opener:

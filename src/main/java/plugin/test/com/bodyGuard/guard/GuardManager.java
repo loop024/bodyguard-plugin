@@ -5,7 +5,9 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.LinkedHashSet;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -40,6 +42,7 @@ public final class GuardManager {
     private final NamespacedKeys keys;
     private final PlayerDataStorage playerDataStorage;
     private final Map<UUID, GuardData> guards = new LinkedHashMap<>();
+    private final Set<GuardChunk> managedChunks = new LinkedHashSet<>();
     private boolean dirty;
 
     public GuardManager(BodyGuard plugin, GuardStorage storage, NamespacedKeys keys,
@@ -145,6 +148,7 @@ public final class GuardManager {
         applyPdc(mob, data);
         mob.setAware(true);
         configureGuard(mob, data);
+        updateManagedChunks();
         save();
         return data;
     }
@@ -865,9 +869,11 @@ public final class GuardManager {
             mob.setAware(false);
             data.setOfflineFrozen(true);
         }
+        updateManagedChunks();
     }
 
     public void resumeOwner(UUID ownerId) {
+        updateManagedChunks();
         for (GuardData data : getGuards(ownerId)) {
             Mob mob = getLoadedMob(data);
             if (mob == null) {
@@ -878,6 +884,73 @@ public final class GuardManager {
                 data.setOfflineFrozen(false);
             }
         }
+    }
+
+    /**
+     * Keeps every guard belonging to an online owner loaded and therefore fully
+     * addressable. Tickets follow the saved guard chunk and are released as soon
+     * as the owner logs out or the guard record is removed.
+     */
+    public void updateManagedChunks() {
+        if (!plugin.keepGuardChunksLoaded()) {
+            releaseManagedChunks();
+            return;
+        }
+
+        Set<GuardChunk> desired = new LinkedHashSet<>();
+        for (GuardData data : guards.values()) {
+            Player owner = Bukkit.getPlayer(data.getOwnerId());
+            if (owner == null || !owner.isOnline() || data.isDeletionPending()) {
+                continue;
+            }
+            Entity loaded = Bukkit.getEntity(data.getGuardId());
+            Location location = loaded == null ? data.getLastLocation() : loaded.getLocation();
+            if (location == null || location.getWorld() == null) {
+                continue;
+            }
+            desired.add(new GuardChunk(location.getWorld().getUID(),
+                    location.getBlockX() >> 4, location.getBlockZ() >> 4));
+        }
+
+        for (GuardChunk key : desired) {
+            if (managedChunks.contains(key)) {
+                continue;
+            }
+            World world = Bukkit.getWorld(key.worldId());
+            if (world == null) {
+                continue;
+            }
+            Chunk chunk = world.getChunkAt(key.x(), key.z());
+            chunk.addPluginChunkTicket(plugin);
+            managedChunks.add(key);
+            // A synchronously loaded chunk can already contain its entities before
+            // EntitiesLoadEvent reaches this plugin, so reconcile it immediately.
+            for (Entity entity : chunk.getEntities()) {
+                trackLoadedEntity(entity);
+            }
+        }
+
+        for (GuardChunk key : new ArrayList<>(managedChunks)) {
+            if (desired.contains(key)) {
+                continue;
+            }
+            World world = Bukkit.getWorld(key.worldId());
+            if (world != null && world.isChunkLoaded(key.x(), key.z())) {
+                world.getChunkAt(key.x(), key.z()).removePluginChunkTicket(plugin);
+            }
+            managedChunks.remove(key);
+        }
+    }
+
+    /** Releases all plugin chunk tickets during shutdown or configuration changes. */
+    public void releaseManagedChunks() {
+        for (GuardChunk key : new ArrayList<>(managedChunks)) {
+            World world = Bukkit.getWorld(key.worldId());
+            if (world != null && world.isChunkLoaded(key.x(), key.z())) {
+                world.getChunkAt(key.x(), key.z()).removePluginChunkTicket(plugin);
+            }
+        }
+        managedChunks.clear();
     }
 
     public void refreshLoadedGuard(Mob mob, GuardData data) {
@@ -1114,5 +1187,8 @@ public final class GuardManager {
         } catch (IllegalArgumentException exception) {
             return null;
         }
+    }
+
+    private record GuardChunk(UUID worldId, int x, int z) {
     }
 }

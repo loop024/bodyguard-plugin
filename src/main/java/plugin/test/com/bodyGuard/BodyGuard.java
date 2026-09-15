@@ -127,6 +127,7 @@ public final class BodyGuard extends JavaPlugin {
             gui.stopTasks();
         }
         if (guardManager != null) {
+            guardManager.releaseManagedChunks();
             guardManager.forceSave();
         }
         HandlerList.unregisterAll(this);
@@ -273,6 +274,11 @@ public final class BodyGuard extends JavaPlugin {
 
     public boolean guardsCanDamageEachOther() {
         return getConfig().getBoolean("friendly-fire.guards-can-damage-each-other", false);
+    }
+
+    /** Keeps guards owned by online players loaded so every operation stays available. */
+    public boolean keepGuardChunksLoaded() {
+        return getConfig().getBoolean("guard-management.keep-chunks-loaded-while-owner-online", true);
     }
 
     public boolean stayGuardsDefendOwner() {

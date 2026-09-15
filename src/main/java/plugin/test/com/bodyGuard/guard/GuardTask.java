@@ -30,6 +30,7 @@ public final class GuardTask extends BukkitRunnable {
     @Override
     public void run() {
         executions++;
+        manager.updateManagedChunks();
         for (GuardData data : manager.getAllGuardData()) {
             Mob mob = manager.getLoadedMob(data);
             if (mob == null) {
