@@ -33,7 +33,7 @@ public final class GuardDeathListener implements Listener {
         }
         Player owner = Bukkit.getPlayer(data.getOwnerId());
         if (owner != null && owner.isOnline()) {
-            plugin.getMessages().send(owner, "guard-died", Map.of(
+            plugin.getMessages().sendChat(owner, "guard-died", Map.of(
                     "mob", EntityUtil.prettyMobName(data.getMobType()),
                     "name", data.getName()
             ));

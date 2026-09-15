@@ -46,6 +46,12 @@ public final class MessageUtil {
         showOperationNotice(sender, body, noticeTone(body));
     }
 
+    /** Sends a chat-only message for passive events that were not player operations. */
+    public void sendChat(CommandSender sender, String key, Map<String, String> placeholders) {
+        String body = format(get(key, key), placeholders);
+        sender.sendMessage(color(prefix()) + body);
+    }
+
     /** Sends a message while retaining a bundled fallback for older message files. */
     public void send(CommandSender sender, String key, String fallback,
                      Map<String, String> placeholders) {
