@@ -102,6 +102,12 @@ public final class BodyGuard extends JavaPlugin {
         command.setExecutor(commandExecutor);
         command.setTabCompleter(new BodyGuardTabCompleter(this));
 
+        int recoveredGuards = guardManager.reconcileAlreadyLoadedEntities();
+        if (recoveredGuards > 0) {
+            getLogger().info("Recovered " + recoveredGuards
+                    + " BodyGuard(s) from already-loaded chunks.");
+        }
+
         guardTask = new GuardTask(this, guardManager);
         guardTask.runTaskTimer(this, 20L, 10L);
         gui.startTasks();

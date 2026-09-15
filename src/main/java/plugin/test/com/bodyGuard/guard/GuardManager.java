@@ -33,7 +33,11 @@ import plugin.test.com.bodyGuard.util.LocationUtil;
 /** Owns the registry and all BodyGuard metadata operations. */
 public final class GuardManager {
 
-    private static final long MISSING_CONFIRMATION_MILLIS = 5_000L;
+    // Entity registration can briefly lag behind chunk loading during startup,
+    // cross-world teleports and server implementations that load entities in a
+    // separate phase. Never turn that short window into destructive data loss.
+    private static final long MISSING_CONFIRMATION_MILLIS = 60_000L;
+    private static final int MISSING_SEARCH_CHUNK_RADIUS = 2;
 
     private final BodyGuard plugin;
     private final GuardStorage storage;
@@ -87,6 +91,26 @@ public final class GuardManager {
 
     public Collection<GuardData> getAllGuardData() {
         return new ArrayList<>(guards.values());
+    }
+
+    /** Recovers marked guards that were already loaded before plugin listeners started. */
+    public int reconcileAlreadyLoadedEntities() {
+        int recovered = 0;
+        for (World world : Bukkit.getWorlds()) {
+            for (Chunk chunk : world.getLoadedChunks()) {
+                for (Entity entity : chunk.getEntities()) {
+                    boolean knownBefore = guards.containsKey(entity.getUniqueId());
+                    GuardData tracked = trackLoadedEntity(entity);
+                    if (tracked != null && !knownBefore) {
+                        recovered++;
+                    }
+                }
+            }
+        }
+        if (dirty) {
+            save();
+        }
+        return recovered;
     }
 
     public List<GuardData> getGuards(UUID ownerId) {
@@ -320,7 +344,7 @@ public final class GuardManager {
                 continue;
             }
             if (data.isReleasePending()) {
-                Entity pendingEntity = Bukkit.getEntity(data.getGuardId());
+                Entity pendingEntity = findLoadedEntity(data);
                 if (pendingEntity instanceof Mob pendingMob && EntityUtil.isAlive(pendingMob)) {
                     finalizePendingRelease(data, pendingMob);
                     released++;
@@ -379,7 +403,7 @@ public final class GuardManager {
         if (data == null) {
             return null;
         }
-        Entity entity = Bukkit.getEntity(data.getGuardId());
+        Entity entity = findLoadedEntity(data);
         if (!(entity instanceof Mob mob) || !EntityUtil.isAlive(entity)) {
             return null;
         }
@@ -666,7 +690,7 @@ public final class GuardManager {
                 failed++;
                 continue;
             }
-            Entity entity = Bukkit.getEntity(data.getGuardId());
+            Entity entity = findLoadedEntity(data);
             if (entity instanceof Mob mob && EntityUtil.isAlive(mob)) {
                 plugin.playGuardEffect(mob, false);
                 mob.remove();
@@ -717,7 +741,7 @@ public final class GuardManager {
     public void cleanup() {
         boolean changed = false;
         for (GuardData data : new ArrayList<>(guards.values())) {
-            Entity entity = Bukkit.getEntity(data.getGuardId());
+            Entity entity = findLoadedEntity(data);
             if (entity == null) {
                 // A null lookup alone is ambiguous. It is safe to remove the record only
                 // when the last known chunk is loaded and the UUID is still absent there.
@@ -772,12 +796,30 @@ public final class GuardManager {
         }
     }
 
+    /** Reconciles entities after servers finish the entity-loading phase of a chunk. */
+    public void handleEntitiesLoad(Collection<Entity> entities) {
+        if (entities == null || entities.isEmpty()) {
+            return;
+        }
+        boolean changed = false;
+        for (Entity entity : entities) {
+            int before = guards.size();
+            trackLoadedEntity(entity);
+            if (guards.size() != before) {
+                changed = true;
+            }
+        }
+        if (changed) {
+            save();
+        }
+    }
+
     private boolean isDefinitelyMissing(GuardData data) {
         if (data == null) {
             return false;
         }
         UUID guardId = data.getGuardId();
-        if (Bukkit.getEntity(guardId) != null) {
+        if (findLoadedEntity(data) != null) {
             missingSince.remove(guardId);
             return false;
         }
@@ -791,6 +833,46 @@ public final class GuardManager {
         long now = System.currentTimeMillis();
         Long firstMissing = missingSince.putIfAbsent(guardId, now);
         return firstMissing != null && now - firstMissing >= MISSING_CONFIRMATION_MILLIS;
+    }
+
+    /**
+     * Resolves a loaded guard defensively. Bukkit's global UUID index can be
+     * temporarily unavailable while entities are attached to a loaded chunk, so
+     * also use the world index and nearby already-loaded chunks. This method never
+     * force-loads chunks.
+     */
+    private Entity findLoadedEntity(GuardData data) {
+        if (data == null) {
+            return null;
+        }
+        UUID guardId = data.getGuardId();
+        Entity entity = Bukkit.getEntity(guardId);
+        if (entity != null) {
+            return entity;
+        }
+
+        Location last = data.getLastLocation();
+        World world = last == null ? null : last.getWorld();
+        if (world == null) {
+            return null;
+        }
+        int centerX = last.getBlockX() >> 4;
+        int centerZ = last.getBlockZ() >> 4;
+        for (int x = centerX - MISSING_SEARCH_CHUNK_RADIUS;
+             x <= centerX + MISSING_SEARCH_CHUNK_RADIUS; x++) {
+            for (int z = centerZ - MISSING_SEARCH_CHUNK_RADIUS;
+                 z <= centerZ + MISSING_SEARCH_CHUNK_RADIUS; z++) {
+                if (!world.isChunkLoaded(x, z)) {
+                    continue;
+                }
+                for (Entity candidate : world.getChunkAt(x, z).getEntities()) {
+                    if (guardId.equals(candidate.getUniqueId())) {
+                        return candidate;
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     private boolean isLastKnownChunk(GuardData data, Chunk chunk) {
@@ -823,6 +905,7 @@ public final class GuardManager {
         for (Entity entity : chunk.getEntities()) {
             GuardData data = getGuardData(entity);
             if (data != null) {
+                missingSince.remove(data.getGuardId());
                 data.setLastLocation(entity.getLocation());
                 dirty = true;
             }
