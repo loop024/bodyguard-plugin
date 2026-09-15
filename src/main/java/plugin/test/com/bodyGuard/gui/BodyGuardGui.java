@@ -25,6 +25,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
@@ -411,7 +412,7 @@ public final class BodyGuardGui implements Listener {
             return;
         }
         switch (holder.getType()) {
-            case LIST -> handleListClick(player, holder, slot);
+            case LIST -> handleListClick(player, holder, slot, event.getClick(), event.isShiftClick());
             case SUMMON -> handleSummonClick(player, holder, slot);
             case DETAIL -> handleDetailClick(player, holder, slot);
             case MANAGEMENT -> handleManagementClick(player, holder, slot);
@@ -546,7 +547,8 @@ public final class BodyGuardGui implements Listener {
         inventory.setItem(22, resultItem(player));
     }
 
-    private void handleListClick(Player player, BodyGuardMenuHolder holder, int slot) {
+    private void handleListClick(Player player, BodyGuardMenuHolder holder, int slot,
+                                 ClickType click, boolean shiftClick) {
         if (slot == 2) {
             clearResult(player);
             transition(player, () -> openList(player, 0, holder.getFilter().next(), holder.getSort()));
@@ -583,8 +585,17 @@ public final class BodyGuardGui implements Listener {
         if (slot < PREVIOUS_SLOT) {
             int index = slot - CONTENT_START;
             if (index >= 0 && index < holder.getGuardIds().size()) {
-                transition(player, () -> openDetails(player, holder.getGuardIds().get(index),
-                        holder.getPage(), holder.getFilter(), holder.getSort()));
+                UUID guardId = holder.getGuardIds().get(index);
+                if (shiftClick && click != null && click.isRightClick()) {
+                    quickHeal(player, holder, guardId);
+                } else if (shiftClick && click != null && click.isLeftClick()) {
+                    quickTeleport(player, holder, guardId);
+                } else if (click != null && click.isRightClick()) {
+                    quickNextMode(player, holder, guardId);
+                } else if (click == null || click.isLeftClick()) {
+                    transition(player, () -> openDetails(player, guardId,
+                            holder.getPage(), holder.getFilter(), holder.getSort()));
+                }
             }
             return;
         }
@@ -631,6 +642,75 @@ public final class BodyGuardGui implements Listener {
                 // Information and filler slots intentionally do nothing.
             }
         }
+    }
+
+    private void quickNextMode(Player player, BodyGuardMenuHolder holder, UUID guardId) {
+        GuardData data = ownedGuard(player, guardId);
+        if (data == null) {
+            showUnavailableAndReturn(player, holder);
+            return;
+        }
+        if (!hasPermission(player, "bodyguard.mode")) {
+            showResult(player, "gui-no-permission", "&cモードを変更する権限がありません。", Map.of(), false);
+            return;
+        }
+        if (manager.getLoadedMob(data) == null) {
+            showResult(player, "gui-unavailable-reason",
+                    "&e現在この護衛の状態を確認できないため、モードを変更できません。",
+                    Map.of(), false);
+            return;
+        }
+        GuardMode next = switch (data.getMode()) {
+            case FOLLOW -> GuardMode.STAY;
+            case STAY -> GuardMode.GUARD;
+            case GUARD -> GuardMode.FOLLOW;
+        };
+        if (!manager.setMode(player.getUniqueId(), guardId, next)) {
+            showUnavailableAndReturn(player, holder);
+            return;
+        }
+        showResult(player, "gui-mode-changed", "&a{name}：&f{mode} &aに変更しました。",
+                Map.of("name", plugin.color(data.getName()), "mode", next.japaneseName()), true);
+        reopenList(player, holder);
+    }
+
+    private void quickHeal(Player player, BodyGuardMenuHolder holder, UUID guardId) {
+        if (!hasPermission(player, "bodyguard.heal")) {
+            showResult(player, "gui-no-permission", "&c回復する権限がありません。", Map.of(), false);
+            return;
+        }
+        int outcome = manager.healGuard(player.getUniqueId(), guardId);
+        if (outcome > 0) {
+            showResult(player, "gui-single-heal-result", "&a{name}を回復しました。",
+                    Map.of("name", currentGuardName(player, guardId)), true);
+        } else if (outcome == 0) {
+            showResult(player, "gui-single-heal-full", "&eすでに全回復しています。", Map.of(), false);
+        } else {
+            showResult(player, "gui-unavailable-reason",
+                    "&e現在この護衛の状態を確認できないため、回復できません。", Map.of(), false);
+        }
+        reopenList(player, holder);
+    }
+
+    private void quickTeleport(Player player, BodyGuardMenuHolder holder, UUID guardId) {
+        if (!hasPermission(player, "bodyguard.teleport")) {
+            showResult(player, "gui-no-permission", "&c呼び戻す権限がありません。", Map.of(), false);
+            return;
+        }
+        boolean teleported = manager.teleportGuard(player.getUniqueId(), guardId);
+        if (teleported) {
+            showResult(player, "gui-single-recall-result", "&a{name}を呼び戻しました。",
+                    Map.of("name", currentGuardName(player, guardId)), true);
+        } else {
+            showResult(player, "gui-single-recall-none",
+                    "&eこの護衛は現在呼び戻せません。状態を確認してから再試行してください。",
+                    Map.of(), false);
+        }
+        reopenList(player, holder);
+    }
+
+    private void reopenList(Player player, BodyGuardMenuHolder holder) {
+        transition(player, () -> openList(player, holder.getPage(), holder.getFilter(), holder.getSort()));
     }
 
     private void handleSummonClick(Player player, BodyGuardMenuHolder holder, int slot) {
@@ -923,12 +1003,8 @@ public final class BodyGuardGui implements Listener {
     private ItemStack guardIcon(Player player, GuardData data) {
         Mob mob = manager.getLoadedMob(data);
         List<String> lore = new ArrayList<>();
-        lore.add(text("gui.guard-name", "&7名前: &f{name}",
-                Map.of("name", plugin.color(data.getName()))));
         lore.add(text("gui.guard-mob", "&7種類: &f{mob}",
                 Map.of("mob", mobName(data.getMobType()))));
-        lore.add(text("gui.guard-mode", "&7モード: &f{mode}",
-                Map.of("mode", data.getMode().japaneseName())));
         if (mob == null) {
             addUnavailableLore(lore, data);
         } else {
@@ -936,11 +1012,18 @@ public final class BodyGuardGui implements Listener {
             lore.add(health == null
                     ? text("gui.guard-health-unknown", "&7HP: &f不明（推測しません）")
                     : text("gui.guard-health", "&7HP: &f{health}", Map.of("health", health)));
-            lore.add(statusLine(player, mob));
             addHealthBar(lore, mob);
         }
+        lore.add(text("gui.guard-mode", "&7行動: &f{mode}",
+                Map.of("mode", data.getMode().japaneseName())));
+        if (mob != null) {
+            lore.add(statusLine(player, mob));
+        }
         lore.add(" ");
-        lore.add(text("gui.guard-click", "&bクリック: 詳細を開く"));
+        lore.add(text("gui.guard-click", "&b左クリック &7: 詳細を開く"));
+        lore.add(text("gui.guard-right-click", "&b右クリック &7: 次のモードへ変更"));
+        lore.add(text("gui.guard-shift-left", "&bShift＋左 &7: この護衛を呼ぶ"));
+        lore.add(text("gui.guard-shift-right", "&bShift＋右 &7: この護衛を回復"));
         return item(spawnEgg(data.getMobType()), plugin.color(data.getName()), lore);
     }
 
