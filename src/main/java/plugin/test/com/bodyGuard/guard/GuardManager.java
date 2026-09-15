@@ -725,7 +725,7 @@ public final class GuardManager {
     private void configureGuard(Mob mob, GuardData data) {
         mob.setPersistent(true);
         mob.setRemoveWhenFarAway(false);
-        mob.setCustomName(data.getName());
+        mob.setCustomName(plugin.guardNameplate(data, mob, isCompanion(data)));
         mob.setCustomNameVisible(plugin.showNames());
         if (isForbiddenTarget(mob, mob.getTarget())) {
             mob.setTarget(null);

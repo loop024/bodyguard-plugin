@@ -1,6 +1,9 @@
 @echo off
 setlocal
 
+rem Keep Maven and javac Japanese messages readable in Windows Command Prompt.
+chcp 65001 >nul
+
 cd /d "%~dp0"
 
 set "MAVEN_CMD="

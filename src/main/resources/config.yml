@@ -52,6 +52,11 @@ guard-mode:
 
 display:
   show-name: true
+  # Uses the Mob's standard one-line custom name; no display Entity is created.
+  nameplate:
+    enabled: true
+    mode: NAME_HEALTH_MODE
+    low-health-ratio: 0.25
   # New guards use {mob_name} and a per-owner/type {number}; old/custom templates remain valid.
   default-name: "{mob_name}護衛 {number}"
   # GUI refreshes values in place. Set to 0 to disable automatic refresh.

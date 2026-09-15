@@ -52,10 +52,6 @@ public final class PlayerDataStorage {
         return new HashMap<>(companions);
     }
 
-    public Map<UUID, UUID> getCompanions() {
-        return new HashMap<>(companions);
-    }
-
     public void setCompanion(UUID ownerId, UUID guardId) {
         if (ownerId == null) {
             return;

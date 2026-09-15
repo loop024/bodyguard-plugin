@@ -191,6 +191,12 @@ HPを取得でき、現在HPが最大HPより少ない護衛だけを「負傷�
 
 自分の護衛に照準を合わせている間だけ、画面下部に「名前｜モード｜HP」を表示します。目安は既存の対象選択と同程度の範囲で、壁越しのEntityは対象にしません。視線を外す、別のMobを見る、GUIを開くと表示を終了します。HP不明は不明と表示し、低HPは色と文字で分かるようにします。
 
+## 護衛の頭上表示
+
+護衛の標準カスタム名を使い、「名前｜HP｜モード」を1行で表示します。お気に入りは `☆`、相棒は `★` が名前の前に付きます。健康は緑、軽傷は黄、瀕死は赤、HPを取得できない場合は灰色の「不明」です。表示は護衛管理タスクと同じ間隔で更新されます。
+
+ArmorStandなどの補助Entityは作らないため、チャンクのアンロード、死亡、解除、再起動で表示Entityが残留または重複することはありません。長い名前は頭上だけ24文字で省略し、詳細画面では全文を確認できます。表示距離はバニラのカスタム名仕様に従います。
+
 他プラグインのアクションバー表示との完全な共存は保証しません。送信間隔を設け、表示内容が変わらない間や表示終了後の不要な空文字を連続送信しません。
 
 ## 名前の初期値と番号
@@ -241,6 +247,9 @@ HPを取得でき、現在HPが最大HPより少ない護衛だけを「負傷�
 | `menu-opener.material` | `COMPASS` | メニュー専用アイテムの素材 |
 | `display.default-name` | `{mob_name}護衛 {number}` | 新規護衛名のテンプレート |
 | `display.gui-refresh-interval-ticks` | `20` | GUI自動更新間隔。`0`で無効 |
+| `display.nameplate.enabled` | `true` | 護衛の頭上表示。旧 `display.show-name` も後方互換で使用 |
+| `display.nameplate.mode` | `NAME_HEALTH_MODE` | `NAME`、`NAME_HEALTH`、`NAME_HEALTH_MODE`、`HIDDEN` |
+| `display.nameplate.low-health-ratio` | `0.25` | 頭上HPを赤くする割合（0.05～0.95） |
 | `tutorial.enabled` | `true` | 初回ガイドの自動表示 |
 | `tutorial.show-to-existing-players` | `true` | 保存状態がない既存プレイヤーにも自動表示 |
 | `display.gui-result-seconds` | `5` | 操作結果を表示する秒数 |

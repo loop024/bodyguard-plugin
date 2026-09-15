@@ -12,6 +12,8 @@ import org.bukkit.Material;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.World;
+import org.bukkit.attribute.Attribute;
+import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Mob;
@@ -27,6 +29,7 @@ import plugin.test.com.bodyGuard.command.BodyGuardCommand;
 import plugin.test.com.bodyGuard.command.BodyGuardTabCompleter;
 import plugin.test.com.bodyGuard.gui.BodyGuardGui;
 import plugin.test.com.bodyGuard.guard.GuardManager;
+import plugin.test.com.bodyGuard.guard.GuardData;
 import plugin.test.com.bodyGuard.guard.GuardTask;
 import plugin.test.com.bodyGuard.listener.CombatListener;
 import plugin.test.com.bodyGuard.listener.GuardDeathListener;
@@ -287,7 +290,88 @@ public final class BodyGuard extends JavaPlugin {
     }
 
     public boolean showNames() {
-        return getConfig().getBoolean("display.show-name", true);
+        return isNameplateEnabled() && getNameplateMode() != NameplateMode.HIDDEN;
+    }
+
+    public boolean isNameplateEnabled() {
+        return getConfig().contains("display.nameplate.enabled", true)
+                ? getConfig().getBoolean("display.nameplate.enabled", true)
+                : getConfig().getBoolean("display.show-name", true);
+    }
+
+    public NameplateMode getNameplateMode() {
+        String configured = getConfig().getString("display.nameplate.mode", "NAME_HEALTH_MODE");
+        if (configured != null) {
+            try {
+                return NameplateMode.valueOf(configured.trim().toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException ignored) {
+                // Use the safe default below.
+            }
+        }
+        return NameplateMode.NAME_HEALTH_MODE;
+    }
+
+    public String guardNameplate(GuardData data, Mob mob, boolean companion) {
+        if (!isNameplateEnabled() || getNameplateMode() == NameplateMode.HIDDEN
+                || data == null || mob == null) {
+            return null;
+        }
+        String name = truncateLegacy(color(data.getName()), 24);
+        if (companion) {
+            name = color("&6★ &f") + name;
+        } else if (data.isFavorite()) {
+            name = color("&e☆ &f") + name;
+        }
+        if (getNameplateMode() == NameplateMode.NAME) {
+            return name;
+        }
+        AttributeInstance maximumAttribute = mob.getAttribute(Attribute.MAX_HEALTH);
+        String health = "不明";
+        String healthColor = "&7";
+        if (maximumAttribute != null && Double.isFinite(maximumAttribute.getValue())
+                && maximumAttribute.getValue() > 0.0 && Double.isFinite(mob.getHealth())) {
+            double maximum = maximumAttribute.getValue();
+            double ratio = Math.max(0.0, Math.min(1.0, mob.getHealth() / maximum));
+            double lowRatio = doubleSetting("display.nameplate.low-health-ratio", 0.25, 0.05, 0.95);
+            healthColor = ratio <= lowRatio ? "&c" : ratio <= 0.5 ? "&e" : "&a";
+            health = String.format(Locale.ROOT, "%.0f/%.0f", mob.getHealth(), maximum);
+        }
+        String result = name + color(" &8｜ " + healthColor + "❤ " + health);
+        if (getNameplateMode() == NameplateMode.NAME_HEALTH_MODE) {
+            result += color(" &8｜ &f" + data.getMode().japaneseName());
+        }
+        return result;
+    }
+
+    private String truncateLegacy(String value, int maximumVisible) {
+        if (value == null) {
+            return "";
+        }
+        StringBuilder result = new StringBuilder();
+        int visible = 0;
+        for (int index = 0; index < value.length() && visible < maximumVisible;) {
+            char character = value.charAt(index);
+            if (character == ChatColor.COLOR_CHAR && index + 1 < value.length()) {
+                result.append(character).append(value.charAt(index + 1));
+                index += 2;
+            } else {
+                int codePoint = value.codePointAt(index);
+                result.appendCodePoint(codePoint);
+                index += Character.charCount(codePoint);
+                visible++;
+            }
+        }
+        if (visible < ChatColor.stripColor(value).codePointCount(0, ChatColor.stripColor(value).length())) {
+            result.append(ChatColor.GRAY).append("...");
+        }
+        return result.toString();
+    }
+
+    public enum NameplateMode {
+        NAME,
+        NAME_HEALTH,
+        NAME_HEALTH_MODE,
+        HIDDEN
     }
 
     public String getDefaultNameTemplate() {
