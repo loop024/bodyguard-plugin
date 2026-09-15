@@ -6,6 +6,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
+import org.bukkit.event.Event.Result;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
@@ -55,7 +56,7 @@ public final class PlayerListener implements Listener {
     }
 
     /** Opens the main menu by right-clicking the configured item in the main hand. */
-    @EventHandler(priority = EventPriority.HIGHEST)
+    @EventHandler(priority = EventPriority.LOWEST)
     public void onRightClickMenuOpener(PlayerInteractEvent event) {
         if (event.getHand() != EquipmentSlot.HAND
                 || (event.getAction() != Action.RIGHT_CLICK_AIR
@@ -75,6 +76,8 @@ public final class PlayerListener implements Listener {
         }
 
         event.setCancelled(true);
+        event.setUseInteractedBlock(Result.DENY);
+        event.setUseItemInHand(Result.DENY);
         Bukkit.getScheduler().runTask(plugin, () -> {
             if (player.isOnline() && plugin.isMenuOpenerItem(player.getInventory().getItemInMainHand())) {
                 gui.openCommandMenu(player);
