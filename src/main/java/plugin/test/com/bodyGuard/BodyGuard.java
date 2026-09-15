@@ -35,7 +35,7 @@ import plugin.test.com.bodyGuard.listener.MenuOpenerListener;
 import plugin.test.com.bodyGuard.listener.PlayerListener;
 import plugin.test.com.bodyGuard.listener.TargetListener;
 import plugin.test.com.bodyGuard.storage.GuardStorage;
-import plugin.test.com.bodyGuard.storage.TutorialStorage;
+import plugin.test.com.bodyGuard.storage.PlayerDataStorage;
 import plugin.test.com.bodyGuard.util.EntityUtil;
 import plugin.test.com.bodyGuard.util.MessageUtil;
 
@@ -59,7 +59,7 @@ public final class BodyGuard extends JavaPlugin {
     private NamespacedKeys keys;
     private MessageUtil messages;
     private GuardStorage storage;
-    private TutorialStorage tutorialStorage;
+    private PlayerDataStorage playerDataStorage;
     private GuardManager guardManager;
     private Set<EntityType> allowedMobTypes = Collections.emptySet();
     private GuardTask guardTask;
@@ -75,8 +75,8 @@ public final class BodyGuard extends JavaPlugin {
         reloadSettings();
 
         storage = new GuardStorage(this);
-        tutorialStorage = new TutorialStorage(this);
-        guardManager = new GuardManager(this, storage, keys);
+        playerDataStorage = new PlayerDataStorage(this);
+        guardManager = new GuardManager(this, storage, keys, playerDataStorage);
         guardManager.load(storage.load());
 
         PluginCommand command = getCommand("bodyguard");
@@ -86,7 +86,7 @@ public final class BodyGuard extends JavaPlugin {
             return;
         }
         BodyGuardCommand commandExecutor = new BodyGuardCommand(this, guardManager, messages);
-        gui = new BodyGuardGui(this, guardManager, messages, commandExecutor, tutorialStorage);
+        gui = new BodyGuardGui(this, guardManager, messages, commandExecutor, playerDataStorage);
         commandExecutor.setGui(gui);
 
         getServer().getPluginManager().registerEvents(new CombatListener(this, guardManager), this);
@@ -539,6 +539,7 @@ public final class BodyGuard extends JavaPlugin {
         private final org.bukkit.NamespacedKey mode;
         private final org.bukkit.NamespacedKey name;
         private final org.bukkit.NamespacedKey nameNumber;
+        private final org.bukkit.NamespacedKey favorite;
         private final org.bukkit.NamespacedKey anchorWorld;
         private final org.bukkit.NamespacedKey anchorWorldUuid;
         private final org.bukkit.NamespacedKey anchorX;
@@ -559,6 +560,7 @@ public final class BodyGuard extends JavaPlugin {
             mode = new org.bukkit.NamespacedKey(plugin, "mode");
             name = new org.bukkit.NamespacedKey(plugin, "name");
             nameNumber = new org.bukkit.NamespacedKey(plugin, "name_number");
+            favorite = new org.bukkit.NamespacedKey(plugin, "favorite");
             anchorWorld = new org.bukkit.NamespacedKey(plugin, "anchor_world");
             anchorWorldUuid = new org.bukkit.NamespacedKey(plugin, "anchor_world_uuid");
             anchorX = new org.bukkit.NamespacedKey(plugin, "anchor_x");
@@ -579,6 +581,7 @@ public final class BodyGuard extends JavaPlugin {
         public org.bukkit.NamespacedKey mode() { return mode; }
         public org.bukkit.NamespacedKey name() { return name; }
         public org.bukkit.NamespacedKey nameNumber() { return nameNumber; }
+        public org.bukkit.NamespacedKey favorite() { return favorite; }
         public org.bukkit.NamespacedKey anchorWorld() { return anchorWorld; }
         public org.bukkit.NamespacedKey anchorWorldUuid() { return anchorWorldUuid; }
         public org.bukkit.NamespacedKey anchorX() { return anchorX; }

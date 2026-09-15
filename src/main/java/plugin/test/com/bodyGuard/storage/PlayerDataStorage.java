@@ -13,8 +13,8 @@ import java.util.logging.Level;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 
-/** Stores the explicit completion choice for the optional first-use guide. */
-public final class TutorialStorage {
+/** Stores owner-level choices that do not belong to an individual guard entity. */
+public final class PlayerDataStorage {
 
     public enum State {
         COMPLETED,
@@ -24,8 +24,9 @@ public final class TutorialStorage {
     private final JavaPlugin plugin;
     private final File file;
     private final Map<UUID, State> states = new HashMap<>();
+    private final Map<UUID, UUID> companions = new HashMap<>();
 
-    public TutorialStorage(JavaPlugin plugin) {
+    public PlayerDataStorage(JavaPlugin plugin) {
         this.plugin = plugin;
         this.file = new File(plugin.getDataFolder(), "players.yml");
         load();
@@ -43,8 +44,33 @@ public final class TutorialStorage {
         save();
     }
 
+    public UUID getCompanion(UUID ownerId) {
+        return ownerId == null ? null : companions.get(ownerId);
+    }
+
+    public Map<UUID, UUID> getCompanions() {
+        return new HashMap<>(companions);
+    }
+
+    public Map<UUID, UUID> getCompanions() {
+        return new HashMap<>(companions);
+    }
+
+    public void setCompanion(UUID ownerId, UUID guardId) {
+        if (ownerId == null) {
+            return;
+        }
+        if (guardId == null) {
+            companions.remove(ownerId);
+        } else {
+            companions.put(ownerId, guardId);
+        }
+        save();
+    }
+
     private void load() {
         states.clear();
+        companions.clear();
         YamlConfiguration configuration = YamlConfiguration.loadConfiguration(file);
         for (String idText : configuration.getConfigurationSection("players") == null
                 ? java.util.Set.<String>of()
@@ -54,6 +80,10 @@ public final class TutorialStorage {
                 State state = State.valueOf(configuration.getString(
                         "players." + idText + ".tutorial", "COMPLETED").toUpperCase(java.util.Locale.ROOT));
                 states.put(playerId, state);
+                String companionText = configuration.getString("players." + idText + ".companion");
+                if (companionText != null && !companionText.isBlank()) {
+                    companions.put(playerId, UUID.fromString(companionText));
+                }
             } catch (IllegalArgumentException exception) {
                 plugin.getLogger().warning("Ignoring invalid tutorial player entry: " + idText);
             }
@@ -65,6 +95,9 @@ public final class TutorialStorage {
         configuration.set("version", 1);
         for (Map.Entry<UUID, State> entry : states.entrySet()) {
             configuration.set("players." + entry.getKey() + ".tutorial", entry.getValue().name());
+        }
+        for (Map.Entry<UUID, UUID> entry : companions.entrySet()) {
+            configuration.set("players." + entry.getKey() + ".companion", entry.getValue().toString());
         }
         File parent = file.getParentFile();
         if (parent != null && !parent.exists() && !parent.mkdirs()) {

@@ -86,6 +86,7 @@ public final class GuardStorage {
                 GuardData data = new GuardData(
                         guardId, ownerId, mobType, mode, name, ownerName, anchor, last, nameNumber);
                 data.setReleasePending(guards.getBoolean(idText + ".release-pending", false));
+                data.setFavorite(guards.getBoolean(idText + ".favorite", false));
                 result.put(guardId, data);
             } catch (RuntimeException exception) {
                 plugin.getLogger().log(Level.WARNING,
@@ -97,7 +98,7 @@ public final class GuardStorage {
 
     public boolean save(Collection<GuardData> guardData) {
         YamlConfiguration configuration = new YamlConfiguration();
-        configuration.set("version", 2);
+        configuration.set("version", 3);
 
         for (GuardData data : guardData) {
             if (data == null) {
@@ -111,6 +112,7 @@ public final class GuardStorage {
             configuration.set(path + ".name", data.getName());
             configuration.set(path + ".name-number", data.getNameNumber());
             configuration.set(path + ".release-pending", data.isReleasePending());
+            configuration.set(path + ".favorite", data.isFavorite());
             writeLocation(configuration, path + ".anchor-location", data.getAnchorLocation());
             writeLocation(configuration, path + ".last-location", data.getLastLocation());
         }

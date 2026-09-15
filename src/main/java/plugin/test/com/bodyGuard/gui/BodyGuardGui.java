@@ -43,8 +43,8 @@ import plugin.test.com.bodyGuard.command.BodyGuardCommand;
 import plugin.test.com.bodyGuard.guard.GuardData;
 import plugin.test.com.bodyGuard.guard.GuardManager;
 import plugin.test.com.bodyGuard.guard.GuardMode;
-import plugin.test.com.bodyGuard.storage.TutorialStorage;
-import plugin.test.com.bodyGuard.storage.TutorialStorage.State;
+import plugin.test.com.bodyGuard.storage.PlayerDataStorage;
+import plugin.test.com.bodyGuard.storage.PlayerDataStorage.State;
 import plugin.test.com.bodyGuard.util.EntityUtil;
 import plugin.test.com.bodyGuard.util.LocationUtil;
 import plugin.test.com.bodyGuard.util.MessageUtil;
@@ -67,7 +67,7 @@ public final class BodyGuardGui implements Listener {
     private final BodyGuardCommand command;
     private final BodyGuardReleaseMenu releaseMenu;
     private final GuardListQuery listQuery;
-    private final TutorialStorage tutorialStorage;
+    private final PlayerDataStorage playerDataStorage;
     private final Map<UUID, UiResult> results = new HashMap<>();
     private final Map<UUID, Long> resultTokens = new HashMap<>();
     private final Map<UUID, String> actionBarTexts = new HashMap<>();
@@ -76,14 +76,14 @@ public final class BodyGuardGui implements Listener {
     private BukkitTask actionBarTask;
 
     public BodyGuardGui(BodyGuard plugin, GuardManager manager, MessageUtil messages,
-                        BodyGuardCommand command, TutorialStorage tutorialStorage) {
+                        BodyGuardCommand command, PlayerDataStorage playerDataStorage) {
         this.plugin = plugin;
         this.manager = manager;
         this.messages = messages;
         this.command = command;
         this.releaseMenu = new BodyGuardReleaseMenu(messages);
         this.listQuery = new GuardListQuery(manager);
-        this.tutorialStorage = tutorialStorage;
+        this.playerDataStorage = playerDataStorage;
     }
 
     public void startTasks() {
@@ -157,9 +157,9 @@ public final class BodyGuardGui implements Listener {
     }
 
     private boolean shouldAutoShowTutorial(Player player) {
-        if (player == null || tutorialStorage == null
+        if (player == null || playerDataStorage == null
                 || !plugin.getConfig().getBoolean("tutorial.enabled", true)
-                || tutorialStorage.hasChoice(player.getUniqueId())) {
+                || playerDataStorage.hasChoice(player.getUniqueId())) {
             return false;
         }
         return plugin.getConfig().getBoolean("tutorial.show-to-existing-players", true)
@@ -786,7 +786,7 @@ public final class BodyGuardGui implements Listener {
     private void handleTutorialClick(Player player, BodyGuardMenuHolder holder, int slot) {
         int page = holder.getPage();
         if (page == 0 && slot == 13 && hasPermission(player, "bodyguard.summon")) {
-            tutorialStorage.setState(player.getUniqueId(), State.COMPLETED);
+            playerDataStorage.setState(player.getUniqueId(), State.COMPLETED);
             transition(player, () -> openSummon(player, 0, BodyGuardMenuHolder.GuardFilter.ALL,
                     BodyGuardMenuHolder.GuardSort.STANDARD));
             return;
@@ -814,7 +814,7 @@ public final class BodyGuardGui implements Listener {
     }
 
     private void finishTutorial(Player player, BodyGuardMenuHolder holder, State state) {
-        tutorialStorage.setState(player.getUniqueId(), state);
+        playerDataStorage.setState(player.getUniqueId(), state);
         transition(player, () -> {
             if (holder.isReleaseAll()) {
                 openCommandMenu(player);
@@ -1098,6 +1098,7 @@ public final class BodyGuardGui implements Listener {
             }
             case 22 -> singleHeal(player, holder);
             case 25 -> singleTeleport(player, holder);
+            case 28 -> toggleFavorite(player, holder);
             case 31 -> {
                 if (hasPermission(player, "bodyguard.release")) {
                     transition(player, () -> openSingleReleaseConfirmation(player, holder));
@@ -1105,6 +1106,7 @@ public final class BodyGuardGui implements Listener {
                     showResult(player, "gui-no-permission", "&cこの操作を使う権限がありません。", Map.of(), false);
                 }
             }
+            case 34 -> toggleCompanion(player, holder);
             case 36 -> transition(player, () -> openList(player, holder.getPage(),
                     holder.getFilter(), holder.getSort()));
             case 42 -> transition(player, () -> openDetails(player, holder.getGuardId(), holder.getPage(),
@@ -1132,6 +1134,34 @@ public final class BodyGuardGui implements Listener {
                     "&e現在この護衛の状態を確認できません。護衛の状態を確認できる場所で更新してください。",
                     Map.of(), false);
         }
+        transition(player, () -> openDetails(player, holder.getGuardId(), holder.getPage(),
+                holder.getFilter(), holder.getSort()));
+    }
+
+    private void toggleFavorite(Player player, BodyGuardMenuHolder holder) {
+        GuardData data = ownedGuard(player, holder.getGuardId());
+        if (data == null || !manager.toggleFavorite(player.getUniqueId(), holder.getGuardId())) {
+            showUnavailableAndReturn(player, holder);
+            return;
+        }
+        boolean favorite = data.isFavorite();
+        showResult(player, favorite ? "gui-favorite-added" : "gui-favorite-removed",
+                favorite ? "&a{name}をお気に入りに登録しました。" : "&e{name}のお気に入りを解除しました。",
+                Map.of("name", plugin.color(data.getName())), true);
+        transition(player, () -> openDetails(player, holder.getGuardId(), holder.getPage(),
+                holder.getFilter(), holder.getSort()));
+    }
+
+    private void toggleCompanion(Player player, BodyGuardMenuHolder holder) {
+        GuardData data = ownedGuard(player, holder.getGuardId());
+        if (data == null || !manager.toggleCompanion(player.getUniqueId(), holder.getGuardId())) {
+            showUnavailableAndReturn(player, holder);
+            return;
+        }
+        boolean companion = manager.isCompanion(data);
+        showResult(player, companion ? "gui-companion-set" : "gui-companion-removed",
+                companion ? "&a{name}を相棒に設定しました。" : "&e相棒設定を解除しました。",
+                Map.of("name", plugin.color(data.getName())), true);
         transition(player, () -> openDetails(player, holder.getGuardId(), holder.getPage(),
                 holder.getFilter(), holder.getSort()));
     }
@@ -1338,7 +1368,16 @@ public final class BodyGuardGui implements Listener {
         lore.add(text("gui.guard-right-click", "&b右クリック &7: 次のモードへ変更"));
         lore.add(text("gui.guard-shift-left", "&bShift＋左 &7: この護衛を呼ぶ"));
         lore.add(text("gui.guard-shift-right", "&bShift＋右 &7: この護衛を回復"));
-        return item(spawnEgg(data.getMobType()), plugin.color(data.getName()), lore);
+        boolean companion = manager.isCompanion(data);
+        boolean highlighted = companion || data.isFavorite();
+        String prefix = companion ? text("gui.guard-companion-prefix", "&6★ &e相棒 &8｜ ")
+                : data.isFavorite() ? text("gui.guard-favorite-prefix", "&e☆ ") : "";
+        if (companion) {
+            lore.add(0, text("gui.guard-companion", "&6★ 相棒"));
+        } else if (data.isFavorite()) {
+            lore.add(0, text("gui.guard-favorite", "&e☆ お気に入り"));
+        }
+        return item(spawnEgg(data.getMobType()), prefix + plugin.color(data.getName()), lore, highlighted);
     }
 
     private ItemStack invalidGuardIcon() {
@@ -1437,7 +1476,14 @@ public final class BodyGuardGui implements Listener {
             }
             lore.add(" ");
             lore.add(text("gui.detail-name-note", "&7長い名前も説明欄で確認できます。"));
-            inventory.setItem(4, item(spawnEgg(data.getMobType()), plugin.color(data.getName()), lore));
+            boolean companion = manager.isCompanion(data);
+            if (companion) {
+                lore.add(0, text("gui.guard-companion", "&6★ 相棒"));
+            } else if (data.isFavorite()) {
+                lore.add(0, text("gui.guard-favorite", "&e☆ お気に入り"));
+            }
+            inventory.setItem(4, item(spawnEgg(data.getMobType()), plugin.color(data.getName()), lore,
+                    companion || data.isFavorite()));
         }
 
         inventory.setItem(10, modeItem(player, data, mob, GuardMode.FOLLOW));
@@ -1453,6 +1499,8 @@ public final class BodyGuardGui implements Listener {
         inventory.setItem(25, actionItem(player, data, mob, "bodyguard.teleport", Material.COMPASS,
                 "gui.single-recall", "&bこの護衛を呼ぶ",
                 List.of(text("gui.single-recall-lore", "&7この護衛1体だけを安全な場所へ呼び戻します。"))));
+        inventory.setItem(28, favoriteItem(data));
+        inventory.setItem(34, companionItem(data));
         inventory.setItem(31, releaseActionItem(player, data, mob));
         inventory.setItem(36, item(Material.ARROW, text("gui.back", "&b一覧に戻る"),
                 List.of(text("gui.back-lore", "&7表示条件を維持して一覧へ戻ります。"))));
@@ -1481,6 +1529,33 @@ public final class BodyGuardGui implements Listener {
         String name = enabled ? text(key, fallback)
                 : ChatColor.GRAY + ChatColor.stripColor(plugin.color(fallback)) + "（操作不可）";
         return item(enabled ? material : Material.GRAY_DYE, name, fullLore);
+    }
+
+    private ItemStack favoriteItem(GuardData data) {
+        if (data == null) {
+            return item(Material.GRAY_DYE, text("gui.favorite-disabled", "&7お気に入り（操作不可）"),
+                    List.of(text("gui.unavailable-next", "&7一覧へ戻って手動更新してください。")));
+        }
+        boolean favorite = data.isFavorite();
+        return item(favorite ? Material.GOLD_NUGGET : Material.IRON_NUGGET,
+                favorite ? text("gui.favorite-remove", "&eお気に入りを解除")
+                        : text("gui.favorite-add", "&eお気に入りに登録"),
+                List.of(text("gui.favorite-lore", "&7標準一覧でお気に入りを先頭に表示します。"),
+                        text("gui.click-to-use", "&bクリックして実行")), favorite);
+    }
+
+    private ItemStack companionItem(GuardData data) {
+        if (data == null) {
+            return item(Material.GRAY_DYE, text("gui.companion-disabled", "&7相棒（操作不可）"),
+                    List.of(text("gui.unavailable-next", "&7一覧へ戻って手動更新してください。")));
+        }
+        boolean companion = manager.isCompanion(data);
+        return item(companion ? Material.NETHER_STAR : Material.AMETHYST_SHARD,
+                companion ? text("gui.companion-remove", "&6相棒を解除")
+                        : text("gui.companion-set", "&d相棒に設定"),
+                List.of(text("gui.companion-lore", "&7相棒は所有者ごとに1体だけ設定できます。"),
+                        companion ? text("gui.companion-current", "&a現在の相棒です。")
+                                : text("gui.click-to-use", "&bクリックして実行")), companion);
     }
 
     private ItemStack releaseActionItem(Player player, GuardData data, Mob mob) {

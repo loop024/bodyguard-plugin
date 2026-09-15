@@ -26,6 +26,7 @@ import plugin.test.com.bodyGuard.BodyGuard;
 import plugin.test.com.bodyGuard.BodyGuard.GuardFeedback;
 import plugin.test.com.bodyGuard.BodyGuard.NamespacedKeys;
 import plugin.test.com.bodyGuard.storage.GuardStorage;
+import plugin.test.com.bodyGuard.storage.PlayerDataStorage;
 import plugin.test.com.bodyGuard.util.EntityUtil;
 import plugin.test.com.bodyGuard.util.LocationUtil;
 
@@ -35,19 +36,28 @@ public final class GuardManager {
     private final BodyGuard plugin;
     private final GuardStorage storage;
     private final NamespacedKeys keys;
+    private final PlayerDataStorage playerDataStorage;
     private final Map<UUID, GuardData> guards = new LinkedHashMap<>();
     private boolean dirty;
 
-    public GuardManager(BodyGuard plugin, GuardStorage storage, NamespacedKeys keys) {
+    public GuardManager(BodyGuard plugin, GuardStorage storage, NamespacedKeys keys,
+                        PlayerDataStorage playerDataStorage) {
         this.plugin = plugin;
         this.storage = storage;
         this.keys = keys;
+        this.playerDataStorage = playerDataStorage;
     }
 
     public void load(Map<UUID, GuardData> savedGuards) {
         guards.clear();
         if (savedGuards != null) {
             guards.putAll(savedGuards);
+        }
+        for (Map.Entry<UUID, UUID> entry : playerDataStorage.getCompanions().entrySet()) {
+            GuardData companion = guards.get(entry.getValue());
+            if (companion == null || !entry.getKey().equals(companion.getOwnerId())) {
+                playerDataStorage.setCompanion(entry.getKey(), null);
+            }
         }
         dirty = false;
     }
@@ -169,6 +179,8 @@ public final class GuardManager {
         GuardData data = new GuardData(
                 entityId, ownerId, mob.getType(), mode, name, ownerName, anchor,
                 entity.getLocation(), nameNumber);
+        Byte pdcFavorite = pdc.get(keys.favorite(), PersistentDataType.BYTE);
+        data.setFavorite(previous != null ? previous.isFavorite() : pdcFavorite != null && pdcFavorite != 0);
         guards.put(entityId, data);
         dirty = true;
 
@@ -191,6 +203,7 @@ public final class GuardManager {
         if (data != null) {
             if (!isMarked(pdc)) {
                 guards.remove(entity.getUniqueId());
+                clearCompanion(data);
                 dirty = true;
                 return null;
             }
@@ -206,6 +219,35 @@ public final class GuardManager {
     /** Finds registry data by the persistent Guard UUID without loading an entity. */
     public GuardData getGuardData(UUID guardId) {
         return guardId == null ? null : guards.get(guardId);
+    }
+
+    public boolean isCompanion(GuardData data) {
+        return data != null && data.getGuardId().equals(playerDataStorage.getCompanion(data.getOwnerId()));
+    }
+
+    public boolean toggleFavorite(UUID ownerId, UUID guardId) {
+        GuardData data = getGuardData(guardId);
+        if (data == null || ownerId == null || !ownerId.equals(data.getOwnerId())) {
+            return false;
+        }
+        data.setFavorite(!data.isFavorite());
+        Mob mob = getLoadedMob(data);
+        if (mob != null) {
+            applyPdc(mob, data);
+        }
+        dirty = true;
+        save();
+        return true;
+    }
+
+    public boolean toggleCompanion(UUID ownerId, UUID guardId) {
+        GuardData data = getGuardData(guardId);
+        if (data == null || ownerId == null || !ownerId.equals(data.getOwnerId())) {
+            return false;
+        }
+        UUID current = playerDataStorage.getCompanion(ownerId);
+        playerDataStorage.setCompanion(ownerId, guardId.equals(current) ? null : guardId);
+        return true;
     }
 
     /** Changes a selected guard only when it is still owned by the caller and loaded. */
@@ -532,6 +574,7 @@ public final class GuardManager {
         }
         boolean removed = guards.remove(data.getGuardId()) != null;
         if (removed) {
+            clearCompanion(data);
             dirty = true;
             if (saveImmediately) {
                 save();
@@ -554,6 +597,7 @@ public final class GuardManager {
             return null;
         }
         guards.remove(data.getGuardId());
+        clearCompanion(data);
         dirty = true;
         save();
         return data;
@@ -569,6 +613,7 @@ public final class GuardManager {
             }
             if (!(entity instanceof Mob) || entity.isDead() || !entity.isValid() || getGuardData(entity) == null) {
                 guards.remove(data.getGuardId());
+                clearCompanion(data);
                 dirty = true;
                 changed = true;
             } else {
@@ -696,6 +741,7 @@ public final class GuardManager {
         pdc.set(keys.mode(), PersistentDataType.STRING, data.getMode().commandName());
         pdc.set(keys.name(), PersistentDataType.STRING, data.getName());
         pdc.set(keys.nameNumber(), PersistentDataType.INTEGER, data.getNameNumber());
+        pdc.set(keys.favorite(), PersistentDataType.BYTE, (byte) (data.isFavorite() ? 1 : 0));
 
         Location anchor = data.getAnchorLocation();
         if (anchor == null || anchor.getWorld() == null) {
@@ -757,6 +803,7 @@ public final class GuardManager {
         pdc.remove(keys.mode());
         pdc.remove(keys.name());
         pdc.remove(keys.nameNumber());
+        pdc.remove(keys.favorite());
         pdc.remove(keys.anchorWorld());
         pdc.remove(keys.anchorWorldUuid());
         pdc.remove(keys.anchorX());
@@ -778,7 +825,21 @@ public final class GuardManager {
         restoreOriginalSettings(mob);
         clearPdc(mob);
         guards.remove(data.getGuardId());
+        clearCompanion(data);
         dirty = true;
+    }
+
+    private void clearCompanion(GuardData data) {
+        if (!isCompanion(data)) {
+            return;
+        }
+        playerDataStorage.setCompanion(data.getOwnerId(), null);
+        Player owner = Bukkit.getPlayer(data.getOwnerId());
+        if (owner != null && owner.isOnline()) {
+            plugin.getMessages().send(owner, "companion-cleared",
+                    "&e{name}がいなくなったため、相棒設定を解除しました。",
+                    Map.of("name", data.getName()));
+        }
     }
 
     public record ReleaseResult(int released, int queued, int failed) {

@@ -36,6 +36,7 @@ public final class GuardListQuery {
             }
         }
         if (sort == BodyGuardMenuHolder.GuardSort.STANDARD) {
+            filtered.sort(Comparator.comparing(GuardData::isFavorite).reversed());
             return filtered;
         }
         Map<UUID, Integer> originalOrder = new HashMap<>();
@@ -79,6 +80,9 @@ public final class GuardListQuery {
     private boolean matchesFilter(GuardData data, BodyGuardMenuHolder.GuardFilter filter) {
         if (filter == null || filter == BodyGuardMenuHolder.GuardFilter.ALL) {
             return true;
+        }
+        if (filter == BodyGuardMenuHolder.GuardFilter.FAVORITE) {
+            return data.isFavorite();
         }
         if (filter == BodyGuardMenuHolder.GuardFilter.FOLLOW) {
             return data.getMode() == GuardMode.FOLLOW;

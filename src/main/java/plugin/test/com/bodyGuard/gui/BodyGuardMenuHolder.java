@@ -26,6 +26,7 @@ public final class BodyGuardMenuHolder implements InventoryHolder {
 
     public enum GuardFilter {
         ALL("すべて"),
+        FAVORITE("お気に入り"),
         INJURED("負傷中"),
         FOLLOW("追従中"),
         STAY("待機中"),

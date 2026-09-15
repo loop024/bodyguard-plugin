@@ -24,6 +24,7 @@ public final class GuardData {
     private UUID combatTargetId;
     private boolean offlineFrozen;
     private boolean releasePending;
+    private boolean favorite;
 
     public GuardData(UUID guardId, UUID ownerId, EntityType mobType, GuardMode mode,
                      String name, String ownerName, Location anchorLocation, Location lastLocation) {
@@ -170,5 +171,13 @@ public final class GuardData {
 
     public void setReleasePending(boolean releasePending) {
         this.releasePending = releasePending;
+    }
+
+    public boolean isFavorite() {
+        return favorite;
+    }
+
+    public void setFavorite(boolean favorite) {
+        this.favorite = favorite;
     }
 }
