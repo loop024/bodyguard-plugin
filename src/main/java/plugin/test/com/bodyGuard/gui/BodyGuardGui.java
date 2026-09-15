@@ -1309,7 +1309,7 @@ public final class BodyGuardGui implements Listener {
         overviewLore.add(text("gui.overview-unknown", "&7状態を確認できない護衛: &f{count}体",
                 Map.of("count", String.valueOf(summary.unknown()))));
         overviewLore.add(text("gui.remaining", "&7あと &f{remaining}体 &7召喚できます。",
-                Map.of("remaining", String.valueOf(Math.max(0, limit - summary.total()))));
+                Map.of("remaining", String.valueOf(Math.max(0, limit - summary.total())))));
         overviewLore.add(text("gui.overview-filter", "&7表示対象: &f{shown}体／全{total}体",
                 Map.of("shown", String.valueOf(filteredCount), "total", String.valueOf(summary.total()))));
         overviewLore.add(snapshotNote());
