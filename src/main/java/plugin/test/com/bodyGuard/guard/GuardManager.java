@@ -691,9 +691,17 @@ public final class GuardManager {
             if (entity instanceof Mob mob && EntityUtil.isAlive(mob)) {
                 plugin.playGuardEffect(mob, false);
                 mob.remove();
-                guards.remove(data.getGuardId());
-                clearCompanion(data);
-                dirty = true;
+                removeDeletedGuardRecord(data);
+                deleted++;
+                continue;
+            }
+            if ((entity != null && entity.isDead())
+                    || (entity == null && isLastKnownChunkLoaded(data))) {
+                // If the last known chunk is loaded and the UUID is absent from
+                // both Bukkit's index and the nearby loaded chunks, there is no
+                // unloaded entity left to wait for. Remove the stale registry
+                // entry immediately instead of creating a permanent tombstone.
+                removeDeletedGuardRecord(data);
                 deleted++;
                 continue;
             }
@@ -708,6 +716,19 @@ public final class GuardManager {
             save();
         }
         return new DeleteResult(deleted, queued, failed);
+    }
+
+    private boolean isLastKnownChunkLoaded(GuardData data) {
+        Location last = data == null ? null : data.getLastLocation();
+        World world = last == null ? null : last.getWorld();
+        return world != null && world.isChunkLoaded(
+                last.getBlockX() >> 4, last.getBlockZ() >> 4);
+    }
+
+    private void removeDeletedGuardRecord(GuardData data) {
+        guards.remove(data.getGuardId());
+        clearCompanion(data);
+        dirty = true;
     }
 
     public DeleteResult deleteAll(UUID ownerId) {
@@ -750,8 +771,16 @@ public final class GuardManager {
         for (GuardData data : new ArrayList<>(guards.values())) {
             Entity entity = findLoadedEntity(data);
             if (entity == null) {
+                if (data.isDeletionPending() && isLastKnownChunkLoaded(data)) {
+                    removeDeletedGuardRecord(data);
+                    continue;
+                }
                 // A failed UUID lookup does not prove death. Keep the record so a
                 // temporarily unavailable or later reloaded guard can recover.
+                continue;
+            }
+            if (data.isDeletionPending() && entity.isDead()) {
+                removeDeletedGuardRecord(data);
                 continue;
             }
             // A cross-world teleport can briefly expose the old entity wrapper as
