@@ -43,6 +43,8 @@ import plugin.test.com.bodyGuard.command.BodyGuardCommand;
 import plugin.test.com.bodyGuard.guard.GuardData;
 import plugin.test.com.bodyGuard.guard.GuardManager;
 import plugin.test.com.bodyGuard.guard.GuardMode;
+import plugin.test.com.bodyGuard.storage.TutorialStorage;
+import plugin.test.com.bodyGuard.storage.TutorialStorage.State;
 import plugin.test.com.bodyGuard.util.EntityUtil;
 import plugin.test.com.bodyGuard.util.LocationUtil;
 import plugin.test.com.bodyGuard.util.MessageUtil;
@@ -65,6 +67,7 @@ public final class BodyGuardGui implements Listener {
     private final BodyGuardCommand command;
     private final BodyGuardReleaseMenu releaseMenu;
     private final GuardListQuery listQuery;
+    private final TutorialStorage tutorialStorage;
     private final Map<UUID, UiResult> results = new HashMap<>();
     private final Map<UUID, Long> resultTokens = new HashMap<>();
     private final Map<UUID, String> actionBarTexts = new HashMap<>();
@@ -73,13 +76,14 @@ public final class BodyGuardGui implements Listener {
     private BukkitTask actionBarTask;
 
     public BodyGuardGui(BodyGuard plugin, GuardManager manager, MessageUtil messages,
-                        BodyGuardCommand command) {
+                        BodyGuardCommand command, TutorialStorage tutorialStorage) {
         this.plugin = plugin;
         this.manager = manager;
         this.messages = messages;
         this.command = command;
         this.releaseMenu = new BodyGuardReleaseMenu(messages);
         this.listQuery = new GuardListQuery(manager);
+        this.tutorialStorage = tutorialStorage;
     }
 
     public void startTasks() {
@@ -125,6 +129,10 @@ public final class BodyGuardGui implements Listener {
     }
 
     public void openList(Player player) {
+        if (shouldAutoShowTutorial(player)) {
+            openTutorial(player, 0, false);
+            return;
+        }
         openList(player, 0, BodyGuardMenuHolder.GuardFilter.ALL,
                 BodyGuardMenuHolder.GuardSort.STANDARD);
     }
@@ -132,6 +140,10 @@ public final class BodyGuardGui implements Listener {
     /** Opens the compact daily-command hub used by the protected menu item. */
     public void openCommandMenu(Player player) {
         if (!canUseMenu(player)) {
+            return;
+        }
+        if (shouldAutoShowTutorial(player)) {
+            openTutorial(player, 0, true);
             return;
         }
         BodyGuardMenuHolder holder = new BodyGuardMenuHolder(
@@ -142,6 +154,80 @@ public final class BodyGuardGui implements Listener {
                 text("gui.command-title", "&3護衛司令メニュー"));
         renderCommandMenu(inventory, player);
         player.openInventory(inventory);
+    }
+
+    private boolean shouldAutoShowTutorial(Player player) {
+        if (player == null || tutorialStorage == null
+                || !plugin.getConfig().getBoolean("tutorial.enabled", true)
+                || tutorialStorage.hasChoice(player.getUniqueId())) {
+            return false;
+        }
+        return plugin.getConfig().getBoolean("tutorial.show-to-existing-players", true)
+                || !player.hasPlayedBefore();
+    }
+
+    private void openTutorial(Player player, int requestedPage, boolean returnToCommand) {
+        if (!canUseMenu(player)) {
+            return;
+        }
+        int page = Math.max(0, Math.min(2, requestedPage));
+        BodyGuardMenuHolder holder = new BodyGuardMenuHolder(
+                BodyGuardMenuHolder.MenuType.TUTORIAL, player.getUniqueId(), page, null,
+                null, null, returnToCommand, BodyGuardMenuHolder.GuardFilter.ALL,
+                BodyGuardMenuHolder.GuardSort.STANDARD, -1, -1);
+        Inventory inventory = createInventory(holder, MANAGEMENT_SIZE,
+                text("gui.tutorial-title", "&bはじめてのBodyGuard") + " &8(" + (page + 1) + "/3)");
+        renderTutorial(inventory, player, page);
+        player.openInventory(inventory);
+    }
+
+    private void renderTutorial(Inventory inventory, Player player, int page) {
+        fillInventory(inventory, Material.LIGHT_BLUE_STAINED_GLASS_PANE);
+        if (page == 0) {
+            inventory.setItem(4, item(Material.NETHER_STAR, text("gui.tutorial-welcome", "&b&l護衛を迎えよう"),
+                    List.of(text("gui.tutorial-welcome-1", "&7BodyGuardでは敵対Mobを護衛として連れ歩けます。"),
+                            text("gui.tutorial-welcome-2", "&7まずは召喚か野生Mobの勧誘から始めます。"))));
+            inventory.setItem(13, permissionItem(player, "bodyguard.summon", Material.ZOMBIE_SPAWN_EGG,
+                    "gui.tutorial-open-summon", "&d召喚候補を見る",
+                    text("gui.tutorial-open-summon-lore", "&7クリックするとガイドを終えて召喚画面を開きます。")));
+        } else if (page == 1) {
+            List<String> lore = new ArrayList<>();
+            if (hasPermission(player, "bodyguard.recruit")) {
+                lore.add(text("gui.tutorial-recruit-1", "&7対応Mobを5～10ブロック以内で見ます。"));
+                lore.add(text("gui.tutorial-recruit-2", "&f/bg recruit &7を実行すると仲間にできます。"));
+            } else {
+                lore.add(text("gui.tutorial-recruit-disabled", "&8勧誘権限がないため、召喚を利用してください。"));
+            }
+            inventory.setItem(4, item(hasPermission(player, "bodyguard.recruit") ? Material.LEAD : Material.GRAY_DYE,
+                    text("gui.tutorial-recruit-title", "&b野生Mobを仲間にする"), lore));
+            inventory.setItem(13, item(Material.COMPASS, text("gui.tutorial-item-title", "&b専用コンパス"),
+                    List.of(text("gui.tutorial-item-lore", "&7右クリックで司令メニューを開けます。"))));
+        } else {
+            inventory.setItem(4, item(Material.BOOK, text("gui.tutorial-operate-title", "&b護衛を操作する"),
+                    List.of(text("gui.guard-click", "&b左クリック &7: 詳細を開く"),
+                            text("gui.guard-right-click", "&b右クリック &7: 次のモードへ変更"),
+                            text("gui.guard-shift-left", "&bShift＋左 &7: この護衛を呼ぶ"),
+                            text("gui.guard-shift-right", "&bShift＋右 &7: この護衛を回復"))));
+            inventory.setItem(11, item(Material.LEAD, text("gui.tutorial-follow", "&a追従"),
+                    List.of(text("gui.mode-follow", "&7所有者の近くへ付いてきます。"))));
+            inventory.setItem(13, item(Material.ANVIL, text("gui.tutorial-stay", "&e待機"),
+                    List.of(text("gui.mode-stay", "&7その場で待機し、必要時に守ります。"))));
+            inventory.setItem(15, item(Material.SHIELD, text("gui.tutorial-guard", "&b警備"),
+                    List.of(text("gui.mode-guard", "&7指定地点の周囲を警備します。"),
+                            text("gui.tutorial-follow-recommended", "&7迷った場合は追従がおすすめです。"))));
+        }
+        inventory.setItem(18, navigationItem(Material.ARROW, "gui.tutorial-previous", "&b前へ",
+                page > 0, text("gui.tutorial-previous-lore", "&7前の説明へ戻ります。")));
+        inventory.setItem(20, item(Material.OAK_DOOR, text("gui.tutorial-finish", "&aガイドを終了"),
+                List.of(text("gui.tutorial-finish-lore", "&7読了として保存し、メニューへ進みます。"))));
+        inventory.setItem(22, item(Material.GRAY_DYE, text("gui.tutorial-dismiss", "&7次回から表示しない"),
+                List.of(text("gui.tutorial-dismiss-lore", "&7非表示として保存します。ガイドから再表示できます。"))));
+        inventory.setItem(24, item(page < 2 ? Material.ARROW : Material.LIME_CONCRETE,
+                page < 2 ? text("gui.tutorial-next", "&b次へ") : text("gui.tutorial-complete", "&a完了"),
+                List.of(page < 2 ? text("gui.tutorial-next-lore", "&7次の説明へ進みます。")
+                        : text("gui.tutorial-complete-lore", "&7ガイドを完了してメニューへ進みます。"))));
+        inventory.setItem(26, item(Material.BARRIER, text("gui.close", "&c閉じる"),
+                List.of(text("gui.tutorial-close-lore", "&7保存せず閉じます。次回も表示されます。"))));
     }
 
     public void openList(Player player, int page) {
@@ -433,6 +519,7 @@ public final class BodyGuardGui implements Listener {
         }
         switch (holder.getType()) {
             case COMMAND -> handleCommandClick(player, slot);
+            case TUTORIAL -> handleTutorialClick(player, holder, slot);
             case LIST -> handleListClick(player, holder, slot, event.getClick(), event.isShiftClick());
             case SUMMON -> handleSummonClick(player, holder, slot);
             case DETAIL -> handleDetailClick(player, holder, slot);
@@ -526,7 +613,7 @@ public final class BodyGuardGui implements Listener {
                 case SUMMON -> refreshSummon(player, holder, inventory);
                 case DETAIL -> refreshDetail(player, holder, inventory);
                 case MANAGEMENT -> refreshManagement(player, inventory);
-                case RELEASE_CONFIRM, NAME_INPUT -> {
+                case RELEASE_CONFIRM, NAME_INPUT, TUTORIAL -> {
                     // These screens are deliberately not auto-refreshed.
                 }
             }
@@ -568,6 +655,8 @@ public final class BodyGuardGui implements Listener {
                 "gui.command-summon", "&d新規召喚", text("gui.command-summon-lore", "&7召喚候補を開きます。")));
         inventory.setItem(22, item(Material.CHEST, text("gui.command-management", "&6管理"),
                 List.of(text("gui.command-management-lore", "&7契約解除などの管理画面を開きます。"))));
+        inventory.setItem(23, item(Material.BOOK, text("gui.command-guide", "&b操作ガイド"),
+                List.of(text("gui.command-guide-lore", "&7初回ガイドをいつでも読み直せます。"))));
         inventory.setItem(24, item(Material.GRAY_DYE, text("gui.command-settings-disabled", "&7設定（準備中）"),
                 List.of(text("gui.command-settings-disabled-lore", "&7通知設定の実装後に利用できます。"))));
         inventory.setItem(25, resultItem(player));
@@ -636,6 +725,7 @@ public final class BodyGuardGui implements Listener {
             }
             case 22 -> transition(player, () -> openManagement(player, -1,
                     BodyGuardMenuHolder.GuardFilter.ALL, BodyGuardMenuHolder.GuardSort.STANDARD));
+            case 23 -> transition(player, () -> openTutorial(player, 0, true));
             case 26 -> player.closeInventory();
             default -> {
                 // Summary, settings placeholder, result, and filler slots do nothing.
@@ -693,6 +783,48 @@ public final class BodyGuardGui implements Listener {
         showResult(player, key, fallback, placeholders, changed > 0);
     }
 
+    private void handleTutorialClick(Player player, BodyGuardMenuHolder holder, int slot) {
+        int page = holder.getPage();
+        if (page == 0 && slot == 13 && hasPermission(player, "bodyguard.summon")) {
+            tutorialStorage.setState(player.getUniqueId(), State.COMPLETED);
+            transition(player, () -> openSummon(player, 0, BodyGuardMenuHolder.GuardFilter.ALL,
+                    BodyGuardMenuHolder.GuardSort.STANDARD));
+            return;
+        }
+        switch (slot) {
+            case 18 -> {
+                if (page > 0) {
+                    transition(player, () -> openTutorial(player, page - 1, holder.isReleaseAll()));
+                }
+            }
+            case 20 -> finishTutorial(player, holder, State.COMPLETED);
+            case 22 -> finishTutorial(player, holder, State.DISMISSED);
+            case 24 -> {
+                if (page < 2) {
+                    transition(player, () -> openTutorial(player, page + 1, holder.isReleaseAll()));
+                } else {
+                    finishTutorial(player, holder, State.COMPLETED);
+                }
+            }
+            case 26 -> player.closeInventory();
+            default -> {
+                // Guide content and filler slots intentionally do nothing.
+            }
+        }
+    }
+
+    private void finishTutorial(Player player, BodyGuardMenuHolder holder, State state) {
+        tutorialStorage.setState(player.getUniqueId(), state);
+        transition(player, () -> {
+            if (holder.isReleaseAll()) {
+                openCommandMenu(player);
+            } else {
+                openList(player, 0, BodyGuardMenuHolder.GuardFilter.ALL,
+                        BodyGuardMenuHolder.GuardSort.STANDARD);
+            }
+        });
+    }
+
     private void refreshSummon(Player player, BodyGuardMenuHolder holder, Inventory inventory) {
         fillHeader(inventory, player, true, holder.getFilter(), holder.getSort(),
                 manager.countGuards(player.getUniqueId()));
@@ -722,6 +854,10 @@ public final class BodyGuardGui implements Listener {
 
     private void handleListClick(Player player, BodyGuardMenuHolder holder, int slot,
                                  ClickType click, boolean shiftClick) {
+        if (slot == 0) {
+            transition(player, () -> openTutorial(player, 0, false));
+            return;
+        }
         if (slot == 2) {
             clearResult(player);
             transition(player, () -> openList(player, 0, holder.getFilter().next(), holder.getSort()));
@@ -1698,7 +1834,7 @@ public final class BodyGuardGui implements Listener {
             case LIST, SUMMON -> top.setItem(49, resultItem(player));
             case DETAIL -> top.setItem(40, resultItem(player));
             case MANAGEMENT -> top.setItem(22, resultItem(player));
-            case RELEASE_CONFIRM, NAME_INPUT -> {
+            case RELEASE_CONFIRM, NAME_INPUT, TUTORIAL -> {
                 // Confirmation and input screens are unaffected by transient results.
             }
         }

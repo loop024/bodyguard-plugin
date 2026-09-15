@@ -14,6 +14,12 @@ limits:
 menu-opener:
   material: COMPASS
 
+tutorial:
+  # Show the guide before the first /bg or protected-menu-item use.
+  enabled: true
+  # Set false to limit automatic display to players on their first server session.
+  show-to-existing-players: true
+
 follow:
   start-distance: 5.0
   teleport-distance: 30.0

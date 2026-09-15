@@ -15,6 +15,7 @@ public final class BodyGuardMenuHolder implements InventoryHolder {
 
     public enum MenuType {
         COMMAND,
+        TUTORIAL,
         LIST,
         SUMMON,
         DETAIL,

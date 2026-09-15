@@ -35,6 +35,7 @@ import plugin.test.com.bodyGuard.listener.MenuOpenerListener;
 import plugin.test.com.bodyGuard.listener.PlayerListener;
 import plugin.test.com.bodyGuard.listener.TargetListener;
 import plugin.test.com.bodyGuard.storage.GuardStorage;
+import plugin.test.com.bodyGuard.storage.TutorialStorage;
 import plugin.test.com.bodyGuard.util.EntityUtil;
 import plugin.test.com.bodyGuard.util.MessageUtil;
 
@@ -58,6 +59,7 @@ public final class BodyGuard extends JavaPlugin {
     private NamespacedKeys keys;
     private MessageUtil messages;
     private GuardStorage storage;
+    private TutorialStorage tutorialStorage;
     private GuardManager guardManager;
     private Set<EntityType> allowedMobTypes = Collections.emptySet();
     private GuardTask guardTask;
@@ -73,6 +75,7 @@ public final class BodyGuard extends JavaPlugin {
         reloadSettings();
 
         storage = new GuardStorage(this);
+        tutorialStorage = new TutorialStorage(this);
         guardManager = new GuardManager(this, storage, keys);
         guardManager.load(storage.load());
 
@@ -83,7 +86,7 @@ public final class BodyGuard extends JavaPlugin {
             return;
         }
         BodyGuardCommand commandExecutor = new BodyGuardCommand(this, guardManager, messages);
-        gui = new BodyGuardGui(this, guardManager, messages, commandExecutor);
+        gui = new BodyGuardGui(this, guardManager, messages, commandExecutor, tutorialStorage);
         commandExecutor.setGui(gui);
 
         getServer().getPluginManager().registerEvents(new CombatListener(this, guardManager), this);
