@@ -9,6 +9,7 @@ import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.EntityType;
+import org.bukkit.Bukkit;
 
 import plugin.test.com.bodyGuard.BodyGuard;
 import plugin.test.com.bodyGuard.guard.GuardMode;
@@ -27,7 +28,7 @@ public final class BodyGuardTabCompleter implements TabCompleter {
         if (args.length == 1) {
             return matching(args[0], List.of(
                     "help", "menu", "command", "item", "summon", "recruit", "release", "releaseall", "deleteall", "list", "tp",
-                    "mode", "rename", "heal", "reload"
+                    "mode", "rename", "heal", "friend", "reload"
             ));
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("summon")) {
@@ -44,6 +45,15 @@ public final class BodyGuardTabCompleter implements TabCompleter {
                 modes.add(mode.commandName());
             }
             return matching(args[1], modes);
+        }
+        if (args.length == 2 && args[0].equalsIgnoreCase("friend")) {
+            return matching(args[1], List.of("add", "remove", "list"));
+        }
+        if (args.length == 3 && args[0].equalsIgnoreCase("friend")
+                && (args[1].equalsIgnoreCase("add") || args[1].equalsIgnoreCase("remove"))) {
+            return matching(args[2], Bukkit.getOnlinePlayers().stream()
+                    .filter(player -> !player.getName().equals(sender.getName()))
+                    .map(org.bukkit.entity.Player::getName).toList());
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("releaseall")) {
             return matching(args[1], List.of("confirm"));

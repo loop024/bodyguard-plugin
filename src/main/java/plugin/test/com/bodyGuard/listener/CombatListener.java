@@ -8,6 +8,8 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.entity.ProjectileHitEvent;
+import org.bukkit.entity.Projectile;
 
 import plugin.test.com.bodyGuard.BodyGuard;
 import plugin.test.com.bodyGuard.guard.GuardData;
@@ -31,6 +33,12 @@ public final class CombatListener implements Listener {
         Entity source = EntityUtil.resolveDamageSource(event.getDamager());
         GuardData victimGuard = manager.getGuardData(victim);
         GuardData sourceGuard = manager.getGuardData(source);
+
+        if (victim instanceof Player player && sourceGuard != null
+                && manager.isFriend(sourceGuard.getOwnerId(), player.getUniqueId())) {
+            event.setCancelled(true);
+            return;
+        }
 
         if (victim instanceof Player player && sourceGuard != null
                 && player.getUniqueId().equals(sourceGuard.getOwnerId())
@@ -76,6 +84,22 @@ public final class CombatListener implements Listener {
         }
     }
 
+    /** Lets a guard's projectile continue through another guard belonging to the same owner. */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onProjectileHit(ProjectileHitEvent event) {
+        Projectile projectile = event.getEntity();
+        if (event.getHitEntity() == null) {
+            return;
+        }
+        Entity source = projectile.getShooter() instanceof Entity entity ? entity : null;
+        GuardData sourceGuard = manager.getGuardData(source);
+        GuardData hitGuard = manager.getGuardData(event.getHitEntity());
+        if (sourceGuard != null && hitGuard != null
+                && sourceGuard.getOwnerId().equals(hitGuard.getOwnerId())) {
+            event.setCancelled(true);
+        }
+    }
+
     /** Covers indirect damage sources such as an explosion caused by a configurable guard type. */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onEntityDamage(EntityDamageEvent event) {
@@ -88,6 +112,11 @@ public final class CombatListener implements Listener {
         GuardData victimGuard = manager.getGuardData(event.getEntity());
         GuardData sourceGuard = manager.getGuardData(source);
 
+        if (event.getEntity() instanceof Player player && sourceGuard != null
+                && manager.isFriend(sourceGuard.getOwnerId(), player.getUniqueId())) {
+            event.setCancelled(true);
+            return;
+        }
         if (event.getEntity() instanceof Player player && sourceGuard != null
                 && player.getUniqueId().equals(sourceGuard.getOwnerId())
                 && !plugin.guardsCanDamageOwner()) {

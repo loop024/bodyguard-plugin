@@ -354,6 +354,22 @@ public final class GuardManager {
         return data != null && ownerId != null && ownerId.equals(data.getOwnerId());
     }
 
+    public boolean isFriend(UUID ownerId, UUID playerId) {
+        return playerDataStorage.isFriend(ownerId, playerId);
+    }
+
+    public java.util.Set<UUID> getFriends(UUID ownerId) {
+        return playerDataStorage.getFriends(ownerId);
+    }
+
+    public boolean addFriend(UUID ownerId, UUID playerId) {
+        return playerDataStorage.addFriend(ownerId, playerId);
+    }
+
+    public boolean removeFriend(UUID ownerId, UUID playerId) {
+        return playerDataStorage.removeFriend(ownerId, playerId);
+    }
+
     public Mob getLoadedMob(GuardData data) {
         if (data == null) {
             return null;
@@ -377,6 +393,9 @@ public final class GuardManager {
         if (target instanceof Player && !plugin.shouldDefendAgainstPlayers()) {
             return true;
         }
+        if (target instanceof Player player && isFriend(guardData.getOwnerId(), player.getUniqueId())) {
+            return true;
+        }
         GuardData targetData = getGuardData(target);
         return targetData != null
                 && targetData.getOwnerId().equals(guardData.getOwnerId())
@@ -392,6 +411,7 @@ public final class GuardManager {
             return 0;
         }
         if (target.getUniqueId().equals(ownerId)
+                || (target instanceof Player player && isFriend(ownerId, player.getUniqueId()))
                 || (target instanceof Player && !plugin.shouldDefendAgainstPlayers())) {
             return 0;
         }

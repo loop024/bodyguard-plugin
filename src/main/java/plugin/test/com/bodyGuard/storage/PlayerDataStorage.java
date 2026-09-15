@@ -7,6 +7,8 @@ import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
 import java.util.logging.Level;
 
@@ -25,6 +27,7 @@ public final class PlayerDataStorage {
     private final File file;
     private final Map<UUID, State> states = new HashMap<>();
     private final Map<UUID, UUID> companions = new HashMap<>();
+    private final Map<UUID, Set<UUID>> friends = new HashMap<>();
 
     public PlayerDataStorage(JavaPlugin plugin) {
         this.plugin = plugin;
@@ -64,9 +67,37 @@ public final class PlayerDataStorage {
         save();
     }
 
+    public boolean isFriend(UUID ownerId, UUID playerId) {
+        return ownerId != null && playerId != null
+                && friends.getOrDefault(ownerId, Set.of()).contains(playerId);
+    }
+
+    public Set<UUID> getFriends(UUID ownerId) {
+        return ownerId == null ? Set.of()
+                : Set.copyOf(friends.getOrDefault(ownerId, Set.of()));
+    }
+
+    public boolean addFriend(UUID ownerId, UUID playerId) {
+        if (ownerId == null || playerId == null || ownerId.equals(playerId)) {
+            return false;
+        }
+        boolean changed = friends.computeIfAbsent(ownerId, ignored -> new HashSet<>()).add(playerId);
+        if (changed) save();
+        return changed;
+    }
+
+    public boolean removeFriend(UUID ownerId, UUID playerId) {
+        Set<UUID> entries = friends.get(ownerId);
+        boolean changed = entries != null && entries.remove(playerId);
+        if (entries != null && entries.isEmpty()) friends.remove(ownerId);
+        if (changed) save();
+        return changed;
+    }
+
     private void load() {
         states.clear();
         companions.clear();
+        friends.clear();
         YamlConfiguration configuration = YamlConfiguration.loadConfiguration(file);
         for (String idText : configuration.getConfigurationSection("players") == null
                 ? java.util.Set.<String>of()
@@ -80,6 +111,16 @@ public final class PlayerDataStorage {
                 if (companionText != null && !companionText.isBlank()) {
                     companions.put(playerId, UUID.fromString(companionText));
                 }
+                for (String friendText : configuration.getStringList("players." + idText + ".friends")) {
+                    try {
+                        UUID friendId = UUID.fromString(friendText);
+                        if (!friendId.equals(playerId)) {
+                            friends.computeIfAbsent(playerId, ignored -> new HashSet<>()).add(friendId);
+                        }
+                    } catch (IllegalArgumentException exception) {
+                        plugin.getLogger().warning("Ignoring invalid friend UUID for " + idText + ": " + friendText);
+                    }
+                }
             } catch (IllegalArgumentException exception) {
                 plugin.getLogger().warning("Ignoring invalid tutorial player entry: " + idText);
             }
@@ -88,12 +129,16 @@ public final class PlayerDataStorage {
 
     private void save() {
         YamlConfiguration configuration = new YamlConfiguration();
-        configuration.set("version", 1);
+        configuration.set("version", 2);
         for (Map.Entry<UUID, State> entry : states.entrySet()) {
             configuration.set("players." + entry.getKey() + ".tutorial", entry.getValue().name());
         }
         for (Map.Entry<UUID, UUID> entry : companions.entrySet()) {
             configuration.set("players." + entry.getKey() + ".companion", entry.getValue().toString());
+        }
+        for (Map.Entry<UUID, Set<UUID>> entry : friends.entrySet()) {
+            configuration.set("players." + entry.getKey() + ".friends",
+                    entry.getValue().stream().map(UUID::toString).sorted().toList());
         }
         File parent = file.getParentFile();
         if (parent != null && !parent.exists() && !parent.mkdirs()) {

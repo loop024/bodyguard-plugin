@@ -3,6 +3,8 @@ package plugin.test.com.bodyGuard.command;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Map;
+import org.bukkit.Bukkit;
+import org.bukkit.OfflinePlayer;
 
 import org.bukkit.Location;
 import org.bukkit.World;
@@ -78,6 +80,7 @@ public final class BodyGuardCommand implements CommandExecutor {
             case "mode" -> mode(sender, args);
             case "rename" -> rename(sender, args);
             case "heal" -> heal(sender, args);
+            case "friend" -> friend(sender, args);
             case "reload" -> reload(sender, args);
             default -> {
                 messages.send(sender, "unknown-command");
@@ -91,6 +94,44 @@ public final class BodyGuardCommand implements CommandExecutor {
         messages.send(sender, "help-menu", "&f/bg &7- 護衛一覧のGUIを開く");
         messages.send(sender, "help-command", "&f/bg command &7- 簡易司令メニューを開く");
         messages.send(sender, "help-item", "&f/bg item &7- 右クリックでメニューを開く専用アイテムを受け取る");
+        messages.send(sender, "help-friend", "&f/bg friend <add|remove|list> [プレイヤー] &7- 護衛が攻撃しない仲間を管理");
+    }
+
+    private boolean friend(CommandSender sender, String[] args) {
+        Player owner = requirePlayer(sender);
+        if (owner == null) return true;
+        if (args.length == 2 && args[1].equalsIgnoreCase("list")) {
+            java.util.List<String> names = manager.getFriends(owner.getUniqueId()).stream()
+                    .map(Bukkit::getOfflinePlayer)
+                    .map(player -> player.getName() == null ? player.getUniqueId().toString() : player.getName())
+                    .sorted(String.CASE_INSENSITIVE_ORDER).toList();
+            messages.send(sender, names.isEmpty() ? "friend-list-empty" : "friend-list",
+                    names.isEmpty() ? "&e攻撃対象から除外している仲間はいません。" : "&a仲間: &f{players}",
+                    Map.of("players", String.join(", ", names)));
+            return true;
+        }
+        if (args.length != 3 || (!args[1].equalsIgnoreCase("add") && !args[1].equalsIgnoreCase("remove"))) {
+            usage(sender, "/bg friend <add|remove|list> [プレイヤー]");
+            return true;
+        }
+        OfflinePlayer target = Bukkit.getOfflinePlayer(args[2]);
+        if (!target.hasPlayedBefore() && !target.isOnline()) {
+            messages.send(sender, "friend-not-found", "&cそのプレイヤーは見つかりません。");
+            return true;
+        }
+        if (owner.getUniqueId().equals(target.getUniqueId())) {
+            messages.send(sender, "friend-self", "&e自分自身を仲間に追加する必要はありません。");
+            return true;
+        }
+        boolean add = args[1].equalsIgnoreCase("add");
+        boolean changed = add ? manager.addFriend(owner.getUniqueId(), target.getUniqueId())
+                : manager.removeFriend(owner.getUniqueId(), target.getUniqueId());
+        messages.send(sender, changed ? (add ? "friend-added" : "friend-removed")
+                        : (add ? "friend-already-added" : "friend-not-added"),
+                changed ? (add ? "&a{player}を仲間に追加しました。護衛は攻撃しません。" : "&e{player}を仲間から外しました。")
+                        : (add ? "&e{player}はすでに仲間です。" : "&e{player}は仲間に登録されていません。"),
+                Map.of("player", target.getName() == null ? args[2] : target.getName()));
+        return true;
     }
 
     private boolean menu(CommandSender sender, String[] args) {
