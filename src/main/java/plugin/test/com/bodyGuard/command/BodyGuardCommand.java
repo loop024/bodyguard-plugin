@@ -185,7 +185,8 @@ public final class BodyGuardCommand implements CommandExecutor {
             }
             return false;
         }
-        if (manager.countGuards(player.getUniqueId()) >= plugin.getMaxGuardsPerPlayer()) {
+        if (!player.isOp()
+                && manager.countGuards(player.getUniqueId()) >= plugin.getMaxGuardsPerPlayer()) {
             if (notify) {
                 messages.send(player, "guard-limit", Map.of("limit", String.valueOf(plugin.getMaxGuardsPerPlayer())));
             }

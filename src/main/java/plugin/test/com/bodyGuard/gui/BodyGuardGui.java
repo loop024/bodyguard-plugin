@@ -352,8 +352,8 @@ public final class BodyGuardGui implements Listener {
                 List.of(text("gui.summon-page-lore", "&7候補の特徴を確認して選択してください。"))));
         inventory.setItem(48, item(Material.CHEST, text("gui.count", "&7護衛数: &f{count}/{limit}",
                 Map.of("count", String.valueOf(manager.countGuards(player.getUniqueId())),
-                        "limit", String.valueOf(plugin.getMaxGuardsPerPlayer()))),
-                List.of(text("gui.count-lore", "&7上限に達すると召喚できません。"))));
+                        "limit", summonLimitLabel(player))),
+                List.of(summonLimitLore(player))));
         inventory.setItem(49, resultItem(player));
         inventory.setItem(50, item(Material.CLOCK, text("gui.refresh", "&b手動更新"),
                 List.of(text("gui.summon-refresh-lore", "&7召喚候補と設定を読み直します。"))));
@@ -833,8 +833,8 @@ public final class BodyGuardGui implements Listener {
         }
         inventory.setItem(48, item(Material.CHEST, text("gui.count", "&7護衛数: &f{count}/{limit}",
                 Map.of("count", String.valueOf(manager.countGuards(player.getUniqueId())),
-                        "limit", String.valueOf(plugin.getMaxGuardsPerPlayer()))),
-                List.of(text("gui.count-lore", "&7上限に達すると召喚できません。"))));
+                        "limit", summonLimitLabel(player))),
+                List.of(summonLimitLore(player))));
         inventory.setItem(49, resultItem(player));
     }
 
@@ -1396,12 +1396,12 @@ public final class BodyGuardGui implements Listener {
         int count = manager.countGuards(player.getUniqueId());
         boolean permission = hasPermission(player, "bodyguard.summon");
         boolean allowed = plugin.isAllowedMobType(type) && plugin.isSupportedMobType(type);
-        boolean full = count >= plugin.getMaxGuardsPerPlayer();
+        boolean full = !player.isOp() && count >= plugin.getMaxGuardsPerPlayer();
         boolean enabled = permission && allowed && !full;
         List<String> lore = new ArrayList<>();
         lore.add(text("gui.summon-mob", "&7Mob: &f{mob}", Map.of("mob", mobName(type))));
         lore.add(text("gui.summon-count", "&7現在: &f{count}/{limit}", Map.of(
-                "count", String.valueOf(count), "limit", String.valueOf(plugin.getMaxGuardsPerPlayer()))));
+                "count", String.valueOf(count), "limit", summonLimitLabel(player))));
         lore.addAll(mobFeatures(type));
         lore.add(" ");
         if (!permission) {
@@ -1706,19 +1706,24 @@ public final class BodyGuardGui implements Listener {
         List<GuardData> all = manager.getGuards(player.getUniqueId());
         GuardListQuery.Summary summary = listQuery.summary(all);
         int limit = plugin.getMaxGuardsPerPlayer();
+        boolean unlimited = player.isOp();
         List<String> overviewLore = new ArrayList<>();
         overviewLore.add(text("gui.overview-injured", "&7負傷中: &f{count}体",
                 Map.of("count", String.valueOf(summary.injured()))));
         overviewLore.add(text("gui.overview-unknown", "&7状態を確認できない護衛: &f{count}体",
                 Map.of("count", String.valueOf(summary.unknown()))));
-        overviewLore.add(text("gui.remaining", "&7あと &f{remaining}体 &7召喚できます。",
-                Map.of("remaining", String.valueOf(Math.max(0, limit - summary.total())))));
+        if (unlimited) {
+            overviewLore.add(text("gui.remaining-unlimited", "&dOPのため無制限に召喚できます。"));
+        } else {
+            overviewLore.add(text("gui.remaining", "&7あと &f{remaining}体 &7召喚できます。",
+                    Map.of("remaining", String.valueOf(Math.max(0, limit - summary.total())))));
+        }
         overviewLore.add(text("gui.overview-filter", "&7表示対象: &f{shown}体／全{total}体",
                 Map.of("shown", String.valueOf(filteredCount), "total", String.valueOf(summary.total()))));
         overviewLore.add(snapshotNote());
-        inventory.setItem(4, item(summary.total() >= limit ? Material.ORANGE_DYE : Material.CHEST,
+        inventory.setItem(4, item(!unlimited && summary.total() >= limit ? Material.ORANGE_DYE : Material.CHEST,
                 text("gui.overview-title", "&b&lあなたの護衛 &f{count}/{limit}体",
-                        Map.of("count", String.valueOf(summary.total()), "limit", String.valueOf(limit))),
+                        Map.of("count", String.valueOf(summary.total()), "limit", summonLimitLabel(player))),
                 overviewLore));
         inventory.setItem(0, item(Material.BOOK, text("gui.guide-title", "&b&l操作ガイド"),
                 List.of(summon ? text("gui.summon-guide-lore", "&7Mobをクリックすると召喚します。")
@@ -1929,7 +1934,7 @@ public final class BodyGuardGui implements Listener {
         if (!plugin.isAllowedMobType(type) || !plugin.isSupportedMobType(type)) {
             return "gui-summon-not-allowed-now";
         }
-        return manager.countGuards(player.getUniqueId()) >= plugin.getMaxGuardsPerPlayer()
+        return !player.isOp() && manager.countGuards(player.getUniqueId()) >= plugin.getMaxGuardsPerPlayer()
                 ? "gui-summon-full" : "gui-summon-failed";
     }
 
@@ -1940,9 +1945,21 @@ public final class BodyGuardGui implements Listener {
         if (!plugin.isAllowedMobType(type) || !plugin.isSupportedMobType(type)) {
             return "&c現在の設定ではこのMobを召喚できません。";
         }
-        return manager.countGuards(player.getUniqueId()) >= plugin.getMaxGuardsPerPlayer()
+        return !player.isOp() && manager.countGuards(player.getUniqueId()) >= plugin.getMaxGuardsPerPlayer()
                 ? "&c護衛数の上限（{limit}体）に達しています。"
                 : "&c召喚に失敗しました。状態を確認して再試行してください。";
+    }
+
+    private String summonLimitLabel(Player player) {
+        return player != null && player.isOp()
+                ? text("gui.unlimited", "無制限")
+                : String.valueOf(plugin.getMaxGuardsPerPlayer());
+    }
+
+    private String summonLimitLore(Player player) {
+        return player != null && player.isOp()
+                ? text("gui.count-lore-unlimited", "&dOPは護衛数の上限なく召喚できます。")
+                : text("gui.count-lore", "&7上限に達すると召喚できません。");
     }
 
     private void refreshActionBars() {
