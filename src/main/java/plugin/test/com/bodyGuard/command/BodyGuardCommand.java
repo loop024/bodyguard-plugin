@@ -348,7 +348,8 @@ public final class BodyGuardCommand implements CommandExecutor {
                 return true;
             }
             if (args.length != 3 || !args[2].equalsIgnoreCase("confirm")) {
-                messages.send(sender, "deleteall-server-confirm");
+                messages.send(sender, "deleteall-server-confirm",
+                        "&4サーバー内の全護衛Mobを完全削除するには &f/bg deleteall server confirm &4を実行してください。この操作は元に戻せません。");
                 return true;
             }
             GuardManager.DeleteResult result = manager.deleteAllGlobally();
@@ -364,7 +365,8 @@ public final class BodyGuardCommand implements CommandExecutor {
             return true;
         }
         if (args.length != 2 || !args[1].equalsIgnoreCase("confirm")) {
-            messages.send(sender, "deleteall-confirm");
+            messages.send(sender, "deleteall-confirm",
+                    "&c自分の護衛Mobを完全削除するには &f/bg deleteall confirm &cを実行してください。この操作は元に戻せません。");
             return true;
         }
         sendDeleteResult(sender, manager.deleteAll(player.getUniqueId()), false);
