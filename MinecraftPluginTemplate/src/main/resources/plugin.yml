@@ -1,0 +1,18 @@
+name: MyPlugin
+version: '${project.version}'
+main: com.example.myplugin.MyPlugin
+api-version: '1.21'
+author: YourName
+description: 新しいSpigotプラグイン
+
+commands:
+  myplugin:
+    description: MyPluginの動作を確認します
+    usage: /myplugin
+    permission: myplugin.use
+
+permissions:
+  myplugin.use:
+    description: /mypluginの使用を許可します
+    default: true
+
