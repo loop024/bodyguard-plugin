@@ -91,7 +91,10 @@ public final class GuardManager {
             return result;
         }
         for (GuardData data : guards.values()) {
-            if (ownerId.equals(data.getOwnerId())) {
+            // A deletion-pending entry is only an internal tombstone used to remove
+            // an entity if its chunk is loaded later. It is no longer a usable guard
+            // and must not occupy the player's list or guard limit.
+            if (ownerId.equals(data.getOwnerId()) && !data.isDeletionPending()) {
                 result.add(data);
             }
         }
