@@ -2,6 +2,9 @@ package plugin.test.com.bodyGuard.storage;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -90,7 +93,7 @@ public final class GuardStorage {
         return result;
     }
 
-    public void save(Collection<GuardData> guardData) {
+    public boolean save(Collection<GuardData> guardData) {
         YamlConfiguration configuration = new YamlConfiguration();
         configuration.set("version", 1);
 
@@ -113,11 +116,33 @@ public final class GuardStorage {
         if (parent != null && !parent.exists() && !parent.mkdirs()) {
             plugin.getLogger().warning("Could not create plugin data folder for guards.yml.");
         }
+        File temporary = null;
         try {
-            configuration.save(file);
+            temporary = File.createTempFile("guards-", ".tmp", parent);
+            configuration.save(temporary);
+
+            if (file.exists()) {
+                Files.copy(file.toPath(), backupFile().toPath(), StandardCopyOption.REPLACE_EXISTING);
+            }
+            try {
+                Files.move(temporary.toPath(), file.toPath(),
+                        StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException exception) {
+                Files.move(temporary.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            }
+            return true;
         } catch (IOException exception) {
             plugin.getLogger().log(Level.SEVERE, "Could not save guards.yml", exception);
+            return false;
+        } finally {
+            if (temporary != null && temporary.exists() && !temporary.delete()) {
+                temporary.deleteOnExit();
+            }
         }
+    }
+
+    private File backupFile() {
+        return new File(file.getParentFile(), file.getName() + ".bak");
     }
 
     private Location readLocation(ConfigurationSection root, String path) {

@@ -6,7 +6,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.logging.Level;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -36,6 +35,7 @@ public final class GuardManager {
     private final GuardStorage storage;
     private final NamespacedKeys keys;
     private final Map<UUID, GuardData> guards = new LinkedHashMap<>();
+    private boolean dirty;
 
     public GuardManager(BodyGuard plugin, GuardStorage storage, NamespacedKeys keys) {
         this.plugin = plugin;
@@ -48,10 +48,26 @@ public final class GuardManager {
         if (savedGuards != null) {
             guards.putAll(savedGuards);
         }
+        dirty = false;
     }
 
+    /** Saves only when persistent guard data changed since the previous successful save. */
     public void save() {
-        storage.save(new ArrayList<>(guards.values()));
+        if (dirty && storage.save(new ArrayList<>(guards.values()))) {
+            dirty = false;
+        }
+    }
+
+    /** Persists the current registry even when no change was recorded, for plugin shutdown. */
+    public void forceSave() {
+        if (storage.save(new ArrayList<>(guards.values()))) {
+            dirty = false;
+        }
+    }
+
+    /** Records a change made by the periodic entity-state synchronizer. */
+    public void markDirty() {
+        dirty = true;
     }
 
     public Collection<GuardData> getAllGuardData() {
@@ -89,6 +105,7 @@ public final class GuardManager {
 
         saveOriginalSettings(mob);
         guards.put(data.getGuardId(), data);
+        dirty = true;
         applyPdc(mob, data);
         mob.setAware(true);
         configureGuard(mob, data);
@@ -148,6 +165,7 @@ public final class GuardManager {
                 entityId, ownerId, mob.getType(), mode, name, ownerName, anchor,
                 entity.getLocation(), nameNumber);
         guards.put(entityId, data);
+        dirty = true;
 
         // The entity UUID is authoritative. This repairs an incomplete saved PDC entry.
         applyPdc(mob, data);
@@ -226,9 +244,12 @@ public final class GuardManager {
                 continue;
             }
             plugin.playGuardEffect(mob, false);
-            if (releaseGuard(data, mob)) {
+            if (releaseGuard(data, mob, false)) {
                 released++;
             }
+        }
+        if (released > 0) {
+            save();
         }
         return released;
     }
@@ -320,6 +341,7 @@ public final class GuardManager {
         mob.setTarget(null);
         mob.setAware(true);
         applyPdc(mob, data);
+        dirty = true;
         save();
     }
 
@@ -330,6 +352,7 @@ public final class GuardManager {
         data.setName(name);
         applyPdc(mob, data);
         configureGuard(mob, data);
+        dirty = true;
         save();
     }
 
@@ -455,6 +478,10 @@ public final class GuardManager {
     }
 
     public boolean releaseGuard(GuardData data, Mob mob) {
+        return releaseGuard(data, mob, true);
+    }
+
+    private boolean releaseGuard(GuardData data, Mob mob, boolean saveImmediately) {
         if (data == null) {
             return false;
         }
@@ -465,7 +492,10 @@ public final class GuardManager {
         }
         boolean removed = guards.remove(data.getGuardId()) != null;
         if (removed) {
-            save();
+            dirty = true;
+            if (saveImmediately) {
+                save();
+            }
         }
         return removed;
     }
@@ -474,15 +504,15 @@ public final class GuardManager {
         int released = 0;
         for (GuardData data : getGuards(ownerId)) {
             Mob mob = getLoadedMob(data);
-            if (mob == null) {
-                mob = loadMobForOperation(data);
-            }
             if (mob != null) {
                 plugin.playGuardEffect(mob, false);
             }
-            if (mob != null && releaseGuard(data, mob)) {
+            if (mob != null && releaseGuard(data, mob, false)) {
                 released++;
             }
+        }
+        if (released > 0) {
+            save();
         }
         return released;
     }
@@ -496,6 +526,7 @@ public final class GuardManager {
             return null;
         }
         guards.remove(data.getGuardId());
+        dirty = true;
         save();
         return data;
     }
@@ -510,6 +541,7 @@ public final class GuardManager {
             }
             if (!(entity instanceof Mob) || entity.isDead() || !entity.isValid() || getGuardData(entity) == null) {
                 guards.remove(data.getGuardId());
+                dirty = true;
                 changed = true;
             } else {
                 data.setLastLocation(entity.getLocation());
@@ -528,6 +560,7 @@ public final class GuardManager {
         for (Entity entity : chunk.getEntities()) {
             int before = guards.size();
             if (trackLoadedEntity(entity) != null && guards.size() != before) {
+                dirty = true;
                 changed = true;
             }
         }
@@ -701,24 +734,6 @@ public final class GuardManager {
         pdc.remove(keys.originalRemoveWhenFarAway());
         pdc.remove(keys.originalPersistent());
         pdc.remove(keys.originalAware());
-    }
-
-    private Mob loadMobForOperation(GuardData data) {
-        Location location = data.getLastLocation();
-        if (location == null || location.getWorld() == null) {
-            return null;
-        }
-        try {
-            Chunk chunk = location.getWorld().getChunkAt(location.getBlockX() >> 4, location.getBlockZ() >> 4);
-            for (Entity entity : chunk.getEntities()) {
-                if (data.getGuardId().equals(entity.getUniqueId()) && entity instanceof Mob mob) {
-                    return getLoadedMob(data) == null ? null : mob;
-                }
-            }
-        } catch (RuntimeException exception) {
-            plugin.getLogger().log(Level.FINE, "Could not load a BodyGuard chunk for an operation", exception);
-        }
-        return null;
     }
 
     private Location readAnchorFromPdc(PersistentDataContainer pdc) {
