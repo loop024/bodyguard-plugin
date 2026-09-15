@@ -131,6 +131,10 @@ public final class GuardManager {
 
         UUID entityId = entity.getUniqueId();
         GuardData previous = guards.get(entityId);
+        if (previous != null && previous.isReleasePending()) {
+            finalizePendingRelease(previous, mob);
+            return null;
+        }
         GuardMode mode = GuardMode.fromString(getString(pdc, keys.mode()));
         if (mode == null && previous != null) {
             mode = previous.getMode();
@@ -186,6 +190,11 @@ public final class GuardManager {
         if (data != null) {
             if (!isMarked(pdc)) {
                 guards.remove(entity.getUniqueId());
+                dirty = true;
+                return null;
+            }
+            if (data.isReleasePending() && entity instanceof Mob mob) {
+                finalizePendingRelease(data, mob);
                 return null;
             }
             return data;
@@ -229,18 +238,37 @@ public final class GuardManager {
      * Releases exactly the UUID snapshot supplied by a GUI confirmation screen.
      * It intentionally does not load chunks, and never includes guards added later.
      */
-    public int releaseGuards(UUID ownerId, Collection<UUID> guardIds) {
+    public ReleaseResult releaseGuards(UUID ownerId, Collection<UUID> guardIds) {
         if (ownerId == null || guardIds == null || guardIds.isEmpty()) {
-            return 0;
+            return new ReleaseResult(0, 0, 0);
         }
         int released = 0;
+        int queued = 0;
+        int failed = 0;
         for (UUID guardId : new ArrayList<>(guardIds)) {
             GuardData data = getGuardData(guardId);
             if (data == null || !ownerId.equals(data.getOwnerId())) {
+                failed++;
+                continue;
+            }
+            if (data.isReleasePending()) {
+                Entity pendingEntity = Bukkit.getEntity(data.getGuardId());
+                if (pendingEntity instanceof Mob pendingMob && EntityUtil.isAlive(pendingMob)) {
+                    plugin.playGuardEffect(pendingMob, false);
+                    finalizePendingRelease(data, pendingMob);
+                    released++;
+                } else {
+                    queued++;
+                }
                 continue;
             }
             Mob mob = getLoadedMob(data);
             if (mob == null || !owns(ownerId, mob)) {
+                if (!data.isReleasePending()) {
+                    data.setReleasePending(true);
+                    dirty = true;
+                }
+                queued++;
                 continue;
             }
             plugin.playGuardEffect(mob, false);
@@ -248,10 +276,10 @@ public final class GuardManager {
                 released++;
             }
         }
-        if (released > 0) {
+        if (released > 0 || queued > 0) {
             save();
         }
-        return released;
+        return new ReleaseResult(released, queued, failed);
     }
 
     public UUID getOwner(Entity entity) {
@@ -501,21 +529,9 @@ public final class GuardManager {
         return removed;
     }
 
-    public int releaseAll(UUID ownerId) {
-        int released = 0;
-        for (GuardData data : getGuards(ownerId)) {
-            Mob mob = getLoadedMob(data);
-            if (mob != null) {
-                plugin.playGuardEffect(mob, false);
-            }
-            if (mob != null && releaseGuard(data, mob, false)) {
-                released++;
-            }
-        }
-        if (released > 0) {
-            save();
-        }
-        return released;
+    public ReleaseResult releaseAll(UUID ownerId) {
+        List<UUID> guardIds = getGuards(ownerId).stream().map(GuardData::getGuardId).toList();
+        return releaseGuards(ownerId, guardIds);
     }
 
     public GuardData removeGuard(Entity entity) {
@@ -560,7 +576,8 @@ public final class GuardManager {
         boolean changed = false;
         for (Entity entity : chunk.getEntities()) {
             int before = guards.size();
-            if (trackLoadedEntity(entity) != null && guards.size() != before) {
+            trackLoadedEntity(entity);
+            if (guards.size() != before) {
                 dirty = true;
                 changed = true;
             }
@@ -736,6 +753,23 @@ public final class GuardManager {
         pdc.remove(keys.originalRemoveWhenFarAway());
         pdc.remove(keys.originalPersistent());
         pdc.remove(keys.originalAware());
+    }
+
+    private void finalizePendingRelease(GuardData data, Mob mob) {
+        if (data == null || mob == null) {
+            return;
+        }
+        data.clearCombat();
+        restoreOriginalSettings(mob);
+        clearPdc(mob);
+        guards.remove(data.getGuardId());
+        dirty = true;
+    }
+
+    public record ReleaseResult(int released, int queued, int failed) {
+        public int affected() {
+            return released + queued;
+        }
     }
 
     private Location readAnchorFromPdc(PersistentDataContainer pdc) {

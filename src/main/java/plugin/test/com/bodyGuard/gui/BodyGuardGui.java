@@ -401,7 +401,7 @@ public final class BodyGuardGui implements Listener {
         inventory.setItem(13, item(Material.REDSTONE, text("gui.confirm-warning-title", "&e注意"),
                 List.of(text("gui.confirm-warning", "&c通常のMobに戻り、敵対する可能性があります。"),
                         text("gui.confirm-snapshot", "&7この画面を開いた時点のUUIDだけを対象にします。"),
-                        text("gui.confirm-loaded-note", "&7現在読み込まれていない護衛は解除されません。"))));
+                        text("gui.confirm-loaded-note", "&7未読み込みの護衛は解除予約になり、読み込み時に解除されます。"))));
         inventory.setItem(11, item(Material.RED_CONCRETE, text("gui.confirm-release", "&c解除する"),
                 List.of(text("gui.confirm-release-lore", "&7解除を実行します。"))));
         inventory.setItem(15, item(Material.BLUE_CONCRETE, text("gui.confirm-cancel", "&bキャンセル"),
@@ -806,9 +806,9 @@ public final class BodyGuardGui implements Listener {
 
     private void openSingleReleaseConfirmation(Player player, BodyGuardMenuHolder detailHolder) {
         GuardData data = ownedGuard(player, detailHolder.getGuardId());
-        if (data == null || manager.getLoadedMob(data) == null) {
+        if (data == null) {
             showResult(player, "gui-unavailable-reason",
-                    "&e現在この護衛の状態を確認できないため、解除できません。", Map.of(), false);
+                    "&e対象の護衛を確認できないため、解除できません。", Map.of(), false);
             return;
         }
         openReleaseConfirmation(player, List.of(detailHolder.getGuardId()), false,
@@ -823,14 +823,18 @@ public final class BodyGuardGui implements Listener {
                 showResult(player, "gui-no-permission", "&cこの操作を使う権限がありません。", Map.of(), false);
                 return;
             }
-            int released = manager.releaseGuards(player.getUniqueId(), holder.getGuardIds());
-            if (released == 0) {
+            GuardManager.ReleaseResult result = manager.releaseGuards(
+                    player.getUniqueId(), holder.getGuardIds());
+            if (result.affected() == 0) {
                 showResult(player, "gui-release-none",
-                        "&e解除できる護衛がありません。対象が未読み込み・死亡・解除済みの可能性があります。",
+                        "&e解除または解除予約にできる護衛がありません。死亡・解除済みの可能性があります。",
                         Map.of(), false);
             } else {
-                showResult(player, "gui-release-result", "&a実際に解除できた護衛: &f{count}体。",
-                        Map.of("count", String.valueOf(released)), true);
+                showResult(player, "gui-release-summary",
+                        "&a解除済み: &f{released}体 &7/ &e解除予約: &f{queued}体 &7/ &c失敗: &f{failed}体",
+                        Map.of("released", String.valueOf(result.released()),
+                                "queued", String.valueOf(result.queued()),
+                                "failed", String.valueOf(result.failed())), true);
             }
             transition(player, () -> openList(player, holder.getPage(),
                     holder.getFilter(), holder.getSort()));
@@ -1206,6 +1210,11 @@ public final class BodyGuardGui implements Listener {
     }
 
     private void addUnavailableLore(List<String> lore, GuardData data) {
+        if (data != null && data.isReleasePending()) {
+            lore.add(text("gui.guard-release-pending", "&7状態: &e解除予約中"));
+            lore.add(text("gui.guard-release-pending-next", "&7チャンクが自然に読み込まれた時点で解除します。"));
+            return;
+        }
         lore.add(text("gui.guard-status-unknown", "&7状態: &e現在確認できません。"));
         lore.add(text("gui.unavailable-next", "&7状態を確認できる場所で手動更新してください。"));
         Location last = data == null ? null : data.getLastLocation();

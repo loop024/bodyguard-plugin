@@ -311,8 +311,16 @@ public final class BodyGuardCommand implements CommandExecutor {
             messages.send(sender, "releaseall-confirm");
             return true;
         }
-        int released = manager.releaseAll(player.getUniqueId());
-        messages.send(sender, "released-all", Map.of("count", String.valueOf(released)));
+        GuardManager.ReleaseResult result = manager.releaseAll(player.getUniqueId());
+        if (result.queued() > 0 || result.failed() > 0) {
+            messages.send(sender, "release-summary",
+                    "&e解除済み: &f{released}体 &7/ &e解除予約: &f{queued}体 &7/ &c失敗: &f{failed}体",
+                    Map.of("released", String.valueOf(result.released()),
+                            "queued", String.valueOf(result.queued()),
+                            "failed", String.valueOf(result.failed())));
+        } else {
+            messages.send(sender, "released-all", Map.of("count", String.valueOf(result.released())));
+        }
         return true;
     }
 
@@ -339,7 +347,9 @@ public final class BodyGuardCommand implements CommandExecutor {
             Mob loadedMob = manager.getLoadedMob(data);
             String health = loadedMob == null ? "" : EntityUtil.healthText(loadedMob);
             String status;
-            if (loadedMob == null) {
+            if (data.isReleasePending()) {
+                status = messages.get("guard-status-release-pending", "解除予約中");
+            } else if (loadedMob == null) {
                 status = messages.get("gui.guard-status-unknown", "状態を確認できません");
             } else if (!LocationUtil.sameWorld(player.getLocation(), loadedMob.getLocation())) {
                 status = messages.format(messages.get("gui.guard-status-world",

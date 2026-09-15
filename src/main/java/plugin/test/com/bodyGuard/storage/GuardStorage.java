@@ -83,8 +83,10 @@ public final class GuardStorage {
             Location last = readLocation(guards, idText + ".last-location");
 
             try {
-                result.put(guardId, new GuardData(
-                        guardId, ownerId, mobType, mode, name, ownerName, anchor, last, nameNumber));
+                GuardData data = new GuardData(
+                        guardId, ownerId, mobType, mode, name, ownerName, anchor, last, nameNumber);
+                data.setReleasePending(guards.getBoolean(idText + ".release-pending", false));
+                result.put(guardId, data);
             } catch (RuntimeException exception) {
                 plugin.getLogger().log(Level.WARNING,
                         "Ignoring malformed BodyGuard entry: " + idText, exception);
@@ -95,7 +97,7 @@ public final class GuardStorage {
 
     public boolean save(Collection<GuardData> guardData) {
         YamlConfiguration configuration = new YamlConfiguration();
-        configuration.set("version", 1);
+        configuration.set("version", 2);
 
         for (GuardData data : guardData) {
             if (data == null) {
@@ -108,6 +110,7 @@ public final class GuardStorage {
             configuration.set(path + ".mode", data.getMode().commandName());
             configuration.set(path + ".name", data.getName());
             configuration.set(path + ".name-number", data.getNameNumber());
+            configuration.set(path + ".release-pending", data.isReleasePending());
             writeLocation(configuration, path + ".anchor-location", data.getAnchorLocation());
             writeLocation(configuration, path + ".last-location", data.getLastLocation());
         }
@@ -147,12 +150,21 @@ public final class GuardStorage {
 
     private Location readLocation(ConfigurationSection root, String path) {
         String worldName = root.getString(path + ".world");
-        if (worldName == null || worldName.isBlank()) {
-            return null;
+        World world = null;
+        String worldUuid = root.getString(path + ".world-uuid");
+        if (worldUuid != null && !worldUuid.isBlank()) {
+            try {
+                world = Bukkit.getWorld(UUID.fromString(worldUuid));
+            } catch (IllegalArgumentException exception) {
+                plugin.getLogger().warning("Ignoring invalid world UUID for saved BodyGuard location: " + worldUuid);
+            }
         }
-        World world = Bukkit.getWorld(worldName);
+        if (world == null && worldName != null && !worldName.isBlank()) {
+            world = Bukkit.getWorld(worldName);
+        }
         if (world == null) {
-            plugin.getLogger().warning("World is not loaded for saved BodyGuard location: " + worldName);
+            plugin.getLogger().warning("World is not loaded for saved BodyGuard location: "
+                    + (worldName == null ? "unknown" : worldName));
             return null;
         }
         double x = root.getDouble(path + ".x", Double.NaN);
@@ -174,6 +186,7 @@ public final class GuardStorage {
             return;
         }
         configuration.set(path + ".world", location.getWorld().getName());
+        configuration.set(path + ".world-uuid", location.getWorld().getUID().toString());
         configuration.set(path + ".x", location.getX());
         configuration.set(path + ".y", location.getY());
         configuration.set(path + ".z", location.getZ());

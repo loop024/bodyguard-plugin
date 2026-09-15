@@ -23,6 +23,7 @@ public final class GuardData {
     private long combatUntilMillis;
     private UUID combatTargetId;
     private boolean offlineFrozen;
+    private boolean releasePending;
 
     public GuardData(UUID guardId, UUID ownerId, EntityType mobType, GuardMode mode,
                      String name, String ownerName, Location anchorLocation, Location lastLocation) {
@@ -161,5 +162,13 @@ public final class GuardData {
 
     public void setOfflineFrozen(boolean offlineFrozen) {
         this.offlineFrozen = offlineFrozen;
+    }
+
+    public boolean isReleasePending() {
+        return releasePending;
+    }
+
+    public void setReleasePending(boolean releasePending) {
+        this.releasePending = releasePending;
     }
 }
