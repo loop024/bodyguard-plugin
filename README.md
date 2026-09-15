@@ -284,6 +284,15 @@ build.bat
 
 NMS、CraftBukkit内部クラス、Paper専用APIは使用していません。Mobの通常AIを基本的に残し、既存のターゲット制御・所有者判定・味方判定を使っています。そのため、Skeletonの弓やPillagerのクロスボウなど、元Mobの通常動作や装備条件を維持します。特殊AIや他プラグインによる変更まで完全に保証するものではありません。
 
+## 開発時のGUI構成
+
+- `BodyGuardGui`: 画面遷移、クリック処理、自動更新
+- `BodyGuardReleaseMenu`: 解除確認画面の描画
+- `GuardListQuery`: 一覧の絞り込み、並べ替え、状態集計
+- `BodyGuardMenuHolder`: 画面種別、対象UUID、ページ、表示条件の保持
+
+分割の進捗と次の作業対象は `IMPLEMENTATION_PLAN.md` を参照してください。
+
 ## 既知の制約
 
 - 単体の回復・呼び戻しは、未読み込みEntityをこの操作のために強制読み込みしません。護衛のいる場所で状態を確認してから手動更新してください。

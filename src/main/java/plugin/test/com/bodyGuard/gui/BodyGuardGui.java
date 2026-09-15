@@ -512,7 +512,7 @@ public final class BodyGuardGui implements Listener {
 
     private void refreshList(Player player, BodyGuardMenuHolder holder, Inventory inventory) {
         List<GuardData> all = manager.getGuards(player.getUniqueId());
-        int filteredCount = countMatching(player, all, holder.getFilter());
+        int filteredCount = listQuery.countMatching(all, holder.getFilter());
         fillHeader(inventory, player, false, holder.getFilter(), holder.getSort(), filteredCount);
         for (int index = 0; index < holder.getGuardIds().size(); index++) {
             GuardData data = ownedGuard(player, holder.getGuardIds().get(index));
@@ -920,92 +920,6 @@ public final class BodyGuardGui implements Listener {
                 .toList();
     }
 
-    private List<GuardData> filterAndSort(Player player, List<GuardData> all,
-                                          BodyGuardMenuHolder.GuardFilter filter,
-                                          BodyGuardMenuHolder.GuardSort sort) {
-        List<GuardData> filtered = new ArrayList<>();
-        for (GuardData data : all) {
-            if (matchesFilter(player, data, filter)) {
-                filtered.add(data);
-            }
-        }
-        if (sort == BodyGuardMenuHolder.GuardSort.STANDARD) {
-            return filtered;
-        }
-        Map<UUID, Integer> originalOrder = new HashMap<>();
-        for (int index = 0; index < all.size(); index++) {
-            originalOrder.put(all.get(index).getGuardId(), index);
-        }
-        Comparator<GuardData> comparator = Comparator
-                .comparingDouble((GuardData data) -> sortValue(player, data, sort))
-                .thenComparingInt(data -> originalOrder.getOrDefault(data.getGuardId(), Integer.MAX_VALUE));
-        filtered.sort(comparator);
-        return filtered;
-    }
-
-    private int countMatching(Player player, List<GuardData> all,
-                              BodyGuardMenuHolder.GuardFilter filter) {
-        int count = 0;
-        for (GuardData data : all) {
-            if (matchesFilter(player, data, filter)) {
-                count++;
-            }
-        }
-        return count;
-    }
-
-    private boolean matchesFilter(Player player, GuardData data,
-                                  BodyGuardMenuHolder.GuardFilter filter) {
-        if (filter == null || filter == BodyGuardMenuHolder.GuardFilter.ALL) {
-            return true;
-        }
-        if (filter == BodyGuardMenuHolder.GuardFilter.FOLLOW) {
-            return data.getMode() == GuardMode.FOLLOW;
-        }
-        if (filter == BodyGuardMenuHolder.GuardFilter.STAY) {
-            return data.getMode() == GuardMode.STAY;
-        }
-        if (filter == BodyGuardMenuHolder.GuardFilter.GUARD) {
-            return data.getMode() == GuardMode.GUARD;
-        }
-        Mob mob = manager.getLoadedMob(data);
-        if (filter == BodyGuardMenuHolder.GuardFilter.UNKNOWN) {
-            return mob == null;
-        }
-        HealthInfo health = healthInfo(mob);
-        return health != null && health.current() < health.maximum();
-    }
-
-    private double sortValue(Player player, GuardData data, BodyGuardMenuHolder.GuardSort sort) {
-        Mob mob = manager.getLoadedMob(data);
-        if (sort == BodyGuardMenuHolder.GuardSort.DISTANCE) {
-            if (mob == null || player == null
-                    || !LocationUtil.sameWorld(player.getLocation(), mob.getLocation())) {
-                return Double.POSITIVE_INFINITY;
-            }
-            return player.getLocation().distanceSquared(mob.getLocation());
-        }
-        HealthInfo health = healthInfo(mob);
-        return health == null ? Double.POSITIVE_INFINITY : health.ratio();
-    }
-
-    private GuardSummary summary(List<GuardData> all) {
-        int injured = 0;
-        int unknown = 0;
-        for (GuardData data : all) {
-            Mob mob = manager.getLoadedMob(data);
-            if (mob == null) {
-                unknown++;
-                continue;
-            }
-            HealthInfo health = healthInfo(mob);
-            if (health != null && health.current() < health.maximum()) {
-                injured++;
-            }
-        }
-        return new GuardSummary(all.size(), injured, unknown);
-    }
-
     private ItemStack guardIcon(Player player, GuardData data) {
         Mob mob = manager.getLoadedMob(data);
         List<String> lore = new ArrayList<>();
@@ -1309,7 +1223,7 @@ public final class BodyGuardGui implements Listener {
             inventory.setItem(slot, filler.clone());
         }
         List<GuardData> all = manager.getGuards(player.getUniqueId());
-        GuardSummary summary = summary(all);
+        GuardListQuery.Summary summary = listQuery.summary(all);
         int limit = plugin.getMaxGuardsPerPlayer();
         List<String> overviewLore = new ArrayList<>();
         overviewLore.add(text("gui.overview-injured", "&7負傷中: &f{count}体",
@@ -1591,9 +1505,6 @@ public final class BodyGuardGui implements Listener {
     }
 
     private record HealthInfo(double current, double maximum, double ratio) {
-    }
-
-    private record GuardSummary(int total, int injured, int unknown) {
     }
 
     private record UiResult(String message, boolean success, long expiresAtMillis) {
