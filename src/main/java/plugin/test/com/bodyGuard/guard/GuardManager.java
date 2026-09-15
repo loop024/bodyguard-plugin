@@ -23,6 +23,7 @@ import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
 
 import plugin.test.com.bodyGuard.BodyGuard;
+import plugin.test.com.bodyGuard.BodyGuard.GuardFeedback;
 import plugin.test.com.bodyGuard.BodyGuard.NamespacedKeys;
 import plugin.test.com.bodyGuard.storage.GuardStorage;
 import plugin.test.com.bodyGuard.util.EntityUtil;
@@ -254,7 +255,6 @@ public final class GuardManager {
             if (data.isReleasePending()) {
                 Entity pendingEntity = Bukkit.getEntity(data.getGuardId());
                 if (pendingEntity instanceof Mob pendingMob && EntityUtil.isAlive(pendingMob)) {
-                    plugin.playGuardEffect(pendingMob, false);
                     finalizePendingRelease(data, pendingMob);
                     released++;
                 } else {
@@ -371,6 +371,11 @@ public final class GuardManager {
         applyPdc(mob, data);
         dirty = true;
         save();
+        plugin.playGuardFeedback(mob, switch (mode) {
+            case FOLLOW -> GuardFeedback.MODE_FOLLOW;
+            case STAY -> GuardFeedback.MODE_STAY;
+            case GUARD -> GuardFeedback.MODE_GUARD;
+        });
     }
 
     public void rename(GuardData data, Mob mob, String name) {
@@ -438,6 +443,7 @@ public final class GuardManager {
                 guard.setHealth(maximum);
                 if (guard.getHealth() >= maximum) {
                     healed++;
+                    plugin.playGuardFeedback(guard, GuardFeedback.HEAL);
                 }
             } catch (IllegalArgumentException ignored) {
                 // The entity may have changed state during this synchronous operation.
@@ -466,7 +472,11 @@ public final class GuardManager {
         }
         try {
             guard.setHealth(maximum);
-            return guard.getHealth() > 0.0 && guard.getHealth() >= maximum ? 1 : -1;
+            if (guard.getHealth() > 0.0 && guard.getHealth() >= maximum) {
+                plugin.playGuardFeedback(guard, GuardFeedback.HEAL);
+                return 1;
+            }
+            return -1;
         } catch (IllegalArgumentException ignored) {
             return -1;
         }
@@ -503,6 +513,7 @@ public final class GuardManager {
             data.setAnchorLocation(destination);
         }
         dirty = true;
+        plugin.playGuardFeedback(guard, GuardFeedback.RECALL);
         return true;
     }
 
@@ -762,6 +773,7 @@ public final class GuardManager {
         if (data == null || mob == null) {
             return;
         }
+        plugin.playGuardFeedback(mob, GuardFeedback.RELEASE);
         data.clearCombat();
         restoreOriginalSettings(mob);
         clearPdc(mob);

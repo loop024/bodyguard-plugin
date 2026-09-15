@@ -59,6 +59,20 @@ display:
 
 effects:
   enabled: true
+  # Short world feedback emitted only when a guard operation succeeds.
+  guard-feedback:
+    enabled: true
+    summon: true
+    mode-change: true
+    heal: true
+    recall: true
+    release: true
+    low-health:
+      enabled: true
+    particle-count: 10
+    range: 24.0
+    low-health-ratio: 0.25
+    low-health-cooldown-seconds: 30
   # GUI sounds are sent only to the player who used the GUI.
   gui-sounds:
     enabled: true

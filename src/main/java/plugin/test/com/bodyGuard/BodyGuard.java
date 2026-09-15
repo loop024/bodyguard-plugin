@@ -30,6 +30,7 @@ import plugin.test.com.bodyGuard.guard.GuardManager;
 import plugin.test.com.bodyGuard.guard.GuardTask;
 import plugin.test.com.bodyGuard.listener.CombatListener;
 import plugin.test.com.bodyGuard.listener.GuardDeathListener;
+import plugin.test.com.bodyGuard.listener.GuardFeedbackListener;
 import plugin.test.com.bodyGuard.listener.MenuOpenerListener;
 import plugin.test.com.bodyGuard.listener.PlayerListener;
 import plugin.test.com.bodyGuard.listener.TargetListener;
@@ -88,6 +89,7 @@ public final class BodyGuard extends JavaPlugin {
         getServer().getPluginManager().registerEvents(new CombatListener(this, guardManager), this);
         getServer().getPluginManager().registerEvents(new TargetListener(guardManager), this);
         getServer().getPluginManager().registerEvents(new GuardDeathListener(this, guardManager), this);
+        getServer().getPluginManager().registerEvents(new GuardFeedbackListener(this, guardManager), this);
         getServer().getPluginManager().registerEvents(new PlayerListener(this, guardManager, gui), this);
         getServer().getPluginManager().registerEvents(new MenuOpenerListener(this, messages), this);
         getServer().getPluginManager().registerEvents(gui, this);
@@ -317,6 +319,14 @@ public final class BodyGuard extends JavaPlugin {
         return intSetting("display.gui-result-seconds", 5, 1, 30) * 20;
     }
 
+    public double getLowHealthEffectRatio() {
+        return doubleSetting("effects.guard-feedback.low-health-ratio", 0.25, 0.05, 0.95);
+    }
+
+    public long getLowHealthEffectCooldownMillis() {
+        return intSetting("effects.guard-feedback.low-health-cooldown-seconds", 30, 1, 3600) * 1000L;
+    }
+
     /** Item that opens the main menu when right-clicked. */
     public Material getMenuOpenerMaterial() {
         String configured = getConfig().getString("menu-opener.material", "NETHER_STAR");
@@ -411,7 +421,14 @@ public final class BodyGuard extends JavaPlugin {
     }
 
     public void playGuardEffect(Entity entity, boolean created) {
-        if (!effectsEnabled() || entity == null || !entity.isValid()) {
+        playGuardFeedback(entity, created ? GuardFeedback.SUMMON : GuardFeedback.RELEASE);
+    }
+
+    /** Plays one bounded world feedback effect for a successful guard operation. */
+    public void playGuardFeedback(Entity entity, GuardFeedback feedback) {
+        if (!effectsEnabled() || feedback == null || entity == null || !entity.isValid()
+                || !getConfig().getBoolean("effects.guard-feedback.enabled", true)
+                || !getConfig().getBoolean("effects.guard-feedback." + feedback.configKey(), true)) {
             return;
         }
         Location location = entity.getLocation().clone().add(0.0, 1.0, 0.0);
@@ -420,16 +437,50 @@ public final class BodyGuard extends JavaPlugin {
             return;
         }
         try {
-            if (created) {
-                world.spawnParticle(Particle.HAPPY_VILLAGER, location, 10, 0.35, 0.45, 0.35, 0.02);
-                world.playSound(location, Sound.ENTITY_PLAYER_LEVELUP, 0.7f, 1.25f);
-            } else {
-                world.spawnParticle(Particle.SMOKE, location, 8, 0.3, 0.35, 0.3, 0.02);
-                world.playSound(location, Sound.ENTITY_ITEM_BREAK, 0.7f, 0.85f);
+            int count = intSetting("effects.guard-feedback.particle-count", 10, 1, 40);
+            double range = doubleSetting("effects.guard-feedback.range", 24.0, 1.0, 64.0);
+            for (Player viewer : world.getPlayers()) {
+                if (viewer.getLocation().distanceSquared(location) > range * range) {
+                    continue;
+                }
+                viewer.spawnParticle(feedback.particle(), location, count,
+                        feedback.spread(), 0.35, feedback.spread(), 0.02);
+                viewer.playSound(location, feedback.sound(), 0.65f, feedback.pitch());
             }
         } catch (RuntimeException exception) {
-            getLogger().log(Level.FINE, "Could not play BodyGuard effect", exception);
+            getLogger().log(Level.FINE, "Could not play BodyGuard feedback", exception);
         }
+    }
+
+    public enum GuardFeedback {
+        SUMMON("summon", Particle.WITCH, Sound.ENTITY_PLAYER_LEVELUP, 1.25f, 0.45),
+        MODE_FOLLOW("mode-change", Particle.HAPPY_VILLAGER, Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.35f, 0.35),
+        MODE_STAY("mode-change", Particle.COMPOSTER, Sound.BLOCK_NOTE_BLOCK_HAT, 1.0f, 0.35),
+        MODE_GUARD("mode-change", Particle.END_ROD, Sound.ITEM_SHIELD_BLOCK, 1.15f, 0.45),
+        HEAL("heal", Particle.HEART, Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.2f, 0.35),
+        RECALL("recall", Particle.PORTAL, Sound.ENTITY_ENDERMAN_TELEPORT, 1.15f, 0.45),
+        RELEASE("release", Particle.SMOKE, Sound.ENTITY_ITEM_BREAK, 0.85f, 0.4),
+        LOW_HEALTH("low-health.enabled", Particle.DAMAGE_INDICATOR, Sound.BLOCK_NOTE_BLOCK_BASS, 0.7f, 0.25);
+
+        private final String configKey;
+        private final Particle particle;
+        private final Sound sound;
+        private final float pitch;
+        private final double spread;
+
+        GuardFeedback(String configKey, Particle particle, Sound sound, float pitch, double spread) {
+            this.configKey = configKey;
+            this.particle = particle;
+            this.sound = sound;
+            this.pitch = pitch;
+            this.spread = spread;
+        }
+
+        public String configKey() { return configKey; }
+        public Particle particle() { return particle; }
+        public Sound sound() { return sound; }
+        public float pitch() { return pitch; }
+        public double spread() { return spread; }
     }
 
     private int intSetting(String path, int fallback, int minimum, int maximum) {
