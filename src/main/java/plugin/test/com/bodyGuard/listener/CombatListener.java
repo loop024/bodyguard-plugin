@@ -84,7 +84,7 @@ public final class CombatListener implements Listener {
         }
     }
 
-    /** Lets a guard's projectile continue through another guard belonging to the same owner. */
+    /** Lets a guard's projectile pass through its owner, friends, and guards of the same owner. */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onProjectileHit(ProjectileHitEvent event) {
         Projectile projectile = event.getEntity();
@@ -93,9 +93,16 @@ public final class CombatListener implements Listener {
         }
         Entity source = projectile.getShooter() instanceof Entity entity ? entity : null;
         GuardData sourceGuard = manager.getGuardData(source);
+        if (sourceGuard == null) {
+            return;
+        }
         GuardData hitGuard = manager.getGuardData(event.getHitEntity());
-        if (sourceGuard != null && hitGuard != null
-                && sourceGuard.getOwnerId().equals(hitGuard.getOwnerId())) {
+        boolean sameOwnerGuard = hitGuard != null
+                && sourceGuard.getOwnerId().equals(hitGuard.getOwnerId());
+        boolean protectedPlayer = event.getHitEntity() instanceof Player player
+                && (sourceGuard.getOwnerId().equals(player.getUniqueId())
+                    || manager.isFriend(sourceGuard.getOwnerId(), player.getUniqueId()));
+        if (sameOwnerGuard || protectedPlayer) {
             event.setCancelled(true);
         }
     }
