@@ -142,6 +142,10 @@ public final class GuardManager {
 
         UUID entityId = entity.getUniqueId();
         GuardData previous = guards.get(entityId);
+        if (previous != null && previous.isDeletionPending()) {
+            finalizePendingDeletion(previous, mob);
+            return null;
+        }
         if (previous != null && previous.isReleasePending()) {
             finalizePendingRelease(previous, mob);
             return null;
@@ -209,6 +213,10 @@ public final class GuardManager {
             }
             if (data.isReleasePending() && entity instanceof Mob mob) {
                 finalizePendingRelease(data, mob);
+                return null;
+            }
+            if (data.isDeletionPending() && entity instanceof Mob mob) {
+                finalizePendingDeletion(data, mob);
                 return null;
             }
             return data;
@@ -600,6 +608,65 @@ public final class GuardManager {
         return releaseGuards(ownerId, guardIds);
     }
 
+    /** Deletes an owner's UUID snapshot without force-loading any chunks. */
+    public DeleteResult deleteGuards(UUID ownerId, Collection<UUID> guardIds) {
+        if (ownerId == null || guardIds == null || guardIds.isEmpty()) {
+            return new DeleteResult(0, 0, 0);
+        }
+        return deleteGuardsInternal(ownerId, guardIds);
+    }
+
+    /** Deletes the supplied server-wide UUID snapshot, regardless of owner. */
+    public DeleteResult deleteGuardsGlobally(Collection<UUID> guardIds) {
+        if (guardIds == null || guardIds.isEmpty()) {
+            return new DeleteResult(0, 0, 0);
+        }
+        return deleteGuardsInternal(null, guardIds);
+    }
+
+    private DeleteResult deleteGuardsInternal(UUID expectedOwner, Collection<UUID> guardIds) {
+        int deleted = 0;
+        int queued = 0;
+        int failed = 0;
+        for (UUID guardId : new ArrayList<>(guardIds)) {
+            GuardData data = getGuardData(guardId);
+            if (data == null || (expectedOwner != null && !expectedOwner.equals(data.getOwnerId()))) {
+                failed++;
+                continue;
+            }
+            Entity entity = Bukkit.getEntity(data.getGuardId());
+            if (entity instanceof Mob mob && EntityUtil.isAlive(mob)) {
+                plugin.playGuardEffect(mob, false);
+                mob.remove();
+                guards.remove(data.getGuardId());
+                clearCompanion(data);
+                dirty = true;
+                deleted++;
+                continue;
+            }
+            data.setReleasePending(false);
+            data.setDeletionPending(true);
+            data.clearCombat();
+            clearCompanion(data);
+            dirty = true;
+            queued++;
+        }
+        if (deleted > 0 || queued > 0) {
+            save();
+        }
+        return new DeleteResult(deleted, queued, failed);
+    }
+
+    public DeleteResult deleteAll(UUID ownerId) {
+        List<UUID> guardIds = getGuards(ownerId).stream().map(GuardData::getGuardId).toList();
+        return deleteGuards(ownerId, guardIds);
+    }
+
+    public DeleteResult deleteAllGlobally() {
+        List<UUID> guardIds = guards.values().stream().map(GuardData::getGuardId).toList();
+        return deleteGuardsGlobally(guardIds);
+    }
+
     public GuardData removeGuard(Entity entity) {
         if (entity == null) {
             return null;
@@ -883,6 +950,17 @@ public final class GuardManager {
         dirty = true;
     }
 
+    private void finalizePendingDeletion(GuardData data, Mob mob) {
+        if (data == null || mob == null) {
+            return;
+        }
+        data.clearCombat();
+        mob.remove();
+        guards.remove(data.getGuardId());
+        clearCompanion(data);
+        dirty = true;
+    }
+
     private void clearCompanion(GuardData data) {
         if (!isCompanion(data)) {
             return;
@@ -899,6 +977,13 @@ public final class GuardManager {
     public record ReleaseResult(int released, int queued, int failed) {
         public int affected() {
             return released + queued;
+        }
+    }
+
+
+    public record DeleteResult(int deleted, int queued, int failed) {
+        public int affected() {
+            return deleted + queued;
         }
     }
 

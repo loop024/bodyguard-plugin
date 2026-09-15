@@ -24,6 +24,7 @@ public final class GuardData {
     private UUID combatTargetId;
     private boolean offlineFrozen;
     private boolean releasePending;
+    private boolean deletionPending;
     private boolean favorite;
 
     public GuardData(UUID guardId, UUID ownerId, EntityType mobType, GuardMode mode,
@@ -171,6 +172,14 @@ public final class GuardData {
 
     public void setReleasePending(boolean releasePending) {
         this.releasePending = releasePending;
+    }
+
+    public boolean isDeletionPending() {
+        return deletionPending;
+    }
+
+    public void setDeletionPending(boolean deletionPending) {
+        this.deletionPending = deletionPending;
     }
 
     public boolean isFavorite() {
