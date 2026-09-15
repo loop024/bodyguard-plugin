@@ -25,7 +25,7 @@ public final class BodyGuardReleaseMenu {
     public Inventory create(BodyGuardMenuHolder holder, boolean releaseAll,
                             String targetName, int targetCount) {
         String title = text(releaseAll ? "gui.confirm-all-title" : "gui.confirm-single-title",
-                releaseAll ? "&c全解除の確認" : "&c解除の確認");
+                releaseAll ? "&4全解除の確認" : "&4解除の確認");
         Inventory inventory = Bukkit.createInventory(holder, SIZE, title);
         holder.setInventory(inventory);
         fill(inventory);
@@ -55,7 +55,7 @@ public final class BodyGuardReleaseMenu {
     }
 
     private void fill(Inventory inventory) {
-        ItemStack filler = item(Material.GRAY_STAINED_GLASS_PANE, " ", List.of());
+        ItemStack filler = item(Material.RED_STAINED_GLASS_PANE, " ", List.of());
         for (int slot = 0; slot < inventory.getSize(); slot++) {
             inventory.setItem(slot, filler.clone());
         }

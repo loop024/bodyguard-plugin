@@ -160,6 +160,7 @@ public final class BodyGuardGui implements Listener {
                 pageIds, null, false, safeFilter, safeSort, all.size(), filtered.size());
         Inventory inventory = createInventory(holder, MAIN_SIZE,
                 text("gui.list-title", "&9護衛一覧") + " &8(" + (page + 1) + "/" + pages + ")");
+        fillContentArea(inventory, Material.LIGHT_BLUE_STAINED_GLASS_PANE);
         fillHeader(inventory, player, false, safeFilter, safeSort, filtered.size());
 
         for (int index = start; index < end; index++) {
@@ -183,7 +184,7 @@ public final class BodyGuardGui implements Listener {
                     List.of(text("gui.filter-clear-lore", "&7絞り込みを「すべて」に戻します。"))));
         }
 
-        fillBottom(inventory);
+        fillBottom(inventory, Material.CYAN_STAINED_GLASS_PANE);
         inventory.setItem(PREVIOUS_SLOT, navigationItem(Material.ARROW, "gui.previous",
                 "&b前のページ", page > 0, text("gui.previous-lore", "&7前のページを表示します。")));
         inventory.setItem(46, permissionItem(player, "bodyguard.summon", Material.NETHER_STAR,
@@ -228,7 +229,8 @@ public final class BodyGuardGui implements Listener {
                 null, pageTypes, false, filter, sort,
                 manager.countGuards(player.getUniqueId()), manager.countGuards(player.getUniqueId()));
         Inventory inventory = createInventory(holder, MAIN_SIZE,
-                text("gui.summon-title", "&9護衛を召喚") + " &8(" + (page + 1) + "/" + pages + ")");
+                text("gui.summon-title", "&5護衛を召喚") + " &8(" + (page + 1) + "/" + pages + ")");
+        fillContentArea(inventory, Material.PURPLE_STAINED_GLASS_PANE);
         fillHeader(inventory, player, true, filter, sort, manager.countGuards(player.getUniqueId()));
         for (int index = 0; index < pageTypes.size(); index++) {
             inventory.setItem(CONTENT_START + index, summonIcon(pageTypes.get(index), player));
@@ -239,7 +241,7 @@ public final class BodyGuardGui implements Listener {
                     List.of(text("gui.no-summonable-mobs-lore", "&7設定で許可されている対応Mobがありません。"))));
         }
 
-        fillBottom(inventory);
+        fillBottom(inventory, Material.MAGENTA_STAINED_GLASS_PANE);
         inventory.setItem(PREVIOUS_SLOT, navigationItem(Material.ARROW, "gui.previous",
                 "&b前のページ", page > 0, text("gui.previous-lore", "&7前のページを表示します。")));
         inventory.setItem(46, item(Material.ARROW, text("gui.back", "&b一覧に戻る"),
@@ -286,7 +288,7 @@ public final class BodyGuardGui implements Listener {
                 BodyGuardMenuHolder.MenuType.DETAIL, player.getUniqueId(), returnPage, guardId,
                 null, null, false, filter, sort, -1, -1);
         Inventory inventory = createInventory(holder, DETAIL_SIZE, detailTitle(data));
-        fillInventory(inventory);
+        fillInventory(inventory, detailBackground(data));
         renderDetail(inventory, player, data);
         player.openInventory(inventory);
     }
@@ -340,8 +342,8 @@ public final class BodyGuardGui implements Listener {
                 BodyGuardMenuHolder.MenuType.MANAGEMENT, player.getUniqueId(), returnPage, null,
                 null, null, false, filter, sort,
                 manager.countGuards(player.getUniqueId()), manager.countGuards(player.getUniqueId()));
-        Inventory inventory = createInventory(holder, MANAGEMENT_SIZE, text("gui.management-title", "&9護衛管理"));
-        fillInventory(inventory);
+        Inventory inventory = createInventory(holder, MANAGEMENT_SIZE, text("gui.management-title", "&6護衛管理"));
+        fillInventory(inventory, Material.ORANGE_STAINED_GLASS_PANE);
         int count = manager.countGuards(player.getUniqueId());
         inventory.setItem(4, item(Material.CHEST, text("gui.management-summary", "&e現在の護衛: &f{count}体",
                 Map.of("count", String.valueOf(count))),
@@ -536,7 +538,9 @@ public final class BodyGuardGui implements Listener {
     }
 
     private void refreshDetail(Player player, BodyGuardMenuHolder holder, Inventory inventory) {
-        renderDetail(inventory, player, ownedGuard(player, holder.getGuardId()));
+        GuardData data = ownedGuard(player, holder.getGuardId());
+        fillInventory(inventory, detailBackground(data));
+        renderDetail(inventory, player, data);
     }
 
     private void refreshManagement(Player player, Inventory inventory) {
@@ -1084,12 +1088,12 @@ public final class BodyGuardGui implements Listener {
         } else if (!current) {
             lore.add(text("gui.click-mode", "&7クリックで変更"));
         }
-        String name = current
+        String name = current && enabled
                 ? text("gui.mode-selected", "&a{mode}（選択中）", Map.of("mode", mode.japaneseName()))
                 : !enabled
                 ? text("gui.mode-disabled", "&7{mode}（操作不可）", Map.of("mode", mode.japaneseName()))
                 : text("gui.mode-name", "&b{mode}", Map.of("mode", mode.japaneseName()));
-        return item(icon, name, lore, current);
+        return item(enabled ? icon : Material.GRAY_DYE, name, lore, current && enabled);
     }
 
     private String modeDescription(GuardMode mode) {
@@ -1301,7 +1305,9 @@ public final class BodyGuardGui implements Listener {
     private void fillHeader(Inventory inventory, Player player, boolean summon,
                             BodyGuardMenuHolder.GuardFilter filter,
                             BodyGuardMenuHolder.GuardSort sort, int filteredCount) {
-        ItemStack filler = item(Material.BLUE_STAINED_GLASS_PANE, " ", List.of());
+        Material headerMaterial = summon
+                ? Material.PURPLE_STAINED_GLASS_PANE : Material.BLUE_STAINED_GLASS_PANE;
+        ItemStack filler = item(headerMaterial, " ", List.of());
         for (int slot = 0; slot < CONTENT_START; slot++) {
             inventory.setItem(slot, filler.clone());
         }
@@ -1354,18 +1360,42 @@ public final class BodyGuardGui implements Listener {
                 Map.of("seconds", String.format(Locale.ROOT, "%.1f", ticks / 20.0)));
     }
 
-    private void fillBottom(Inventory inventory) {
-        ItemStack filler = item(Material.GRAY_STAINED_GLASS_PANE, " ", List.of());
+    private void fillBottom(Inventory inventory, Material material) {
+        ItemStack filler = item(material, " ", List.of());
         for (int slot = 45; slot < inventory.getSize(); slot++) {
             inventory.setItem(slot, filler.clone());
         }
     }
 
-    private void fillInventory(Inventory inventory) {
-        ItemStack filler = item(Material.BLACK_STAINED_GLASS_PANE, " ", List.of());
+    private void fillContentArea(Inventory inventory, Material material) {
+        ItemStack filler = item(material, " ", List.of());
+        for (int slot = CONTENT_START; slot < PREVIOUS_SLOT; slot++) {
+            inventory.setItem(slot, filler.clone());
+        }
+    }
+
+    private void fillInventory(Inventory inventory, Material material) {
+        ItemStack filler = item(material, " ", List.of());
         for (int slot = 0; slot < inventory.getSize(); slot++) {
             inventory.setItem(slot, filler.clone());
         }
+    }
+
+    private Material detailBackground(GuardData data) {
+        if (data == null) {
+            return Material.GRAY_STAINED_GLASS_PANE;
+        }
+        HealthInfo health = healthInfo(manager.getLoadedMob(data));
+        if (health == null) {
+            return Material.GRAY_STAINED_GLASS_PANE;
+        }
+        if (health.ratio() <= 0.25) {
+            return Material.RED_STAINED_GLASS_PANE;
+        }
+        if (health.ratio() <= 0.5) {
+            return Material.YELLOW_STAINED_GLASS_PANE;
+        }
+        return Material.GREEN_STAINED_GLASS_PANE;
     }
 
     private Inventory createInventory(BodyGuardMenuHolder holder, int size, String title) {
@@ -1377,12 +1407,16 @@ public final class BodyGuardGui implements Listener {
     private ItemStack resultItem(Player player) {
         UiResult result = results.get(player.getUniqueId());
         if (result == null || result.expiresAtMillis() <= System.currentTimeMillis()) {
-            return item(Material.BOOK, text("gui.result-title", "&e直前の操作"),
+            return item(Material.GRAY_DYE, text("gui.result-title", "&7直前の操作"),
                     List.of(text("gui.result-default", "&7操作結果がここに表示されます。")));
         }
-        return item(result.success() ? Material.LIME_DYE : Material.RED_DYE,
-                text(result.success() ? "gui.result-success-title" : "gui.result-failure-title",
-                        result.success() ? "&a操作結果" : "&c操作結果"),
+        Material material = result.tone() == ResultTone.SUCCESS ? Material.LIME_DYE
+                : result.tone() == ResultTone.WARNING ? Material.YELLOW_DYE : Material.RED_DYE;
+        String titleKey = result.tone() == ResultTone.SUCCESS ? "gui.result-success-title"
+                : result.tone() == ResultTone.WARNING ? "gui.result-warning-title" : "gui.result-failure-title";
+        String fallback = result.tone() == ResultTone.SUCCESS ? "&a成功"
+                : result.tone() == ResultTone.WARNING ? "&e注意" : "&c失敗";
+        return item(material, text(titleKey, fallback),
                 List.of(result.message(), text("gui.result-short-lived", "&8数秒後に通常の案内へ戻ります。")));
     }
 
@@ -1442,8 +1476,10 @@ public final class BodyGuardGui implements Listener {
         UUID id = player.getUniqueId();
         long token = ++resultSequence;
         resultTokens.put(id, token);
+        ResultTone tone = success ? ResultTone.SUCCESS
+                : isWarningResult(key) ? ResultTone.WARNING : ResultTone.FAILURE;
         UiResult result = new UiResult(messages.format(messages.get(key, fallback), placeholders),
-                success, System.currentTimeMillis() + plugin.getGuiResultDurationTicks() * 50L);
+                tone, System.currentTimeMillis() + plugin.getGuiResultDurationTicks() * 50L);
         results.put(id, result);
         if (playSound) {
             plugin.playGuiSound(player, success);
@@ -1455,6 +1491,14 @@ public final class BodyGuardGui implements Listener {
             }
         }, plugin.getGuiResultDurationTicks());
         refreshVisibleMenu(player);
+    }
+
+    private boolean isWarningResult(String key) {
+        return key != null && (key.endsWith("-none")
+                || key.endsWith("-full")
+                || key.contains("unavailable")
+                || key.contains("unloaded")
+                || key.equals("gui-release-none"));
     }
 
     private void clearResult(Player player) {
@@ -1590,6 +1634,12 @@ public final class BodyGuardGui implements Listener {
     private record HealthInfo(double current, double maximum, double ratio) {
     }
 
-    private record UiResult(String message, boolean success, long expiresAtMillis) {
+    private enum ResultTone {
+        SUCCESS,
+        WARNING,
+        FAILURE
+    }
+
+    private record UiResult(String message, ResultTone tone, long expiresAtMillis) {
     }
 }
