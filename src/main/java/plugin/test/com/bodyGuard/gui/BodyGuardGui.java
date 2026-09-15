@@ -48,6 +48,7 @@ import plugin.test.com.bodyGuard.storage.PlayerDataStorage.State;
 import plugin.test.com.bodyGuard.util.EntityUtil;
 import plugin.test.com.bodyGuard.util.LocationUtil;
 import plugin.test.com.bodyGuard.util.MessageUtil;
+import plugin.test.com.bodyGuard.util.MessageUtil.NoticeTone;
 
 /** Standard Bukkit inventory menus for browsing and operating owned guards. */
 public final class BodyGuardGui implements Listener {
@@ -1915,6 +1916,11 @@ public final class BodyGuardGui implements Listener {
         UiResult result = new UiResult(messages.format(messages.get(key, fallback), placeholders),
                 tone, System.currentTimeMillis() + plugin.getGuiResultDurationTicks() * 50L);
         results.put(id, result);
+        messages.showOperationNotice(player, result.message(), switch (tone) {
+            case SUCCESS -> NoticeTone.SUCCESS;
+            case WARNING -> NoticeTone.WARNING;
+            case FAILURE -> NoticeTone.FAILURE;
+        });
         if (playSound) {
             plugin.playGuiSound(player, success);
         }

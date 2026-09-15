@@ -93,6 +93,12 @@ effects:
     success-pitch: 1.25
     failure-pitch: 0.75
 
+# Every command and GUI operation displays an unmistakable title to the player.
+notifications:
+  operation-titles:
+    enabled: true
+    duration-ticks: 50
+
 owner-offline:
   freeze-guards: true
 

@@ -8,6 +8,7 @@ import java.util.Map;
 import org.bukkit.ChatColor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
 /** Loads and formats all player-facing messages from messages.yml. */
@@ -40,13 +41,51 @@ public final class MessageUtil {
     }
 
     public void send(CommandSender sender, String key, Map<String, String> placeholders) {
-        sender.sendMessage(format(prefix() + get(key, key), placeholders));
+        String body = format(get(key, key), placeholders);
+        sender.sendMessage(color(prefix()) + body);
+        showOperationNotice(sender, body, noticeTone(body));
     }
 
     /** Sends a message while retaining a bundled fallback for older message files. */
     public void send(CommandSender sender, String key, String fallback,
                      Map<String, String> placeholders) {
-        sender.sendMessage(format(prefix() + get(key, fallback), placeholders));
+        String body = format(get(key, fallback), placeholders);
+        sender.sendMessage(color(prefix()) + body);
+        showOperationNotice(sender, body, noticeTone(body));
+    }
+
+    /** Shows the same unmistakable on-screen acknowledgement for command and GUI operations. */
+    public void showOperationNotice(CommandSender sender, String body, NoticeTone tone) {
+        if (!(sender instanceof Player player)
+                || !plugin.getConfig().getBoolean("notifications.operation-titles.enabled", true)) {
+            return;
+        }
+        NoticeTone actualTone = tone == null ? NoticeTone.SUCCESS : tone;
+        String title = switch (actualTone) {
+            case SUCCESS -> get("notification.success", "&a&l✓ 実行しました");
+            case WARNING -> get("notification.warning", "&e&l! 確認してください");
+            case FAILURE -> get("notification.failure", "&c&l✕ 実行できませんでした");
+        };
+        int stay = Math.max(20, Math.min(100, plugin.getConfig()
+                .getInt("notifications.operation-titles.duration-ticks", 50)));
+        player.sendTitle(color(title), body == null ? "" : body, 5, stay, 10);
+    }
+
+    private NoticeTone noticeTone(String body) {
+        if (body != null && body.startsWith(ChatColor.RED.toString())) {
+            return NoticeTone.FAILURE;
+        }
+        if (body != null && (body.startsWith(ChatColor.YELLOW.toString())
+                || body.startsWith(ChatColor.GOLD.toString()))) {
+            return NoticeTone.WARNING;
+        }
+        return NoticeTone.SUCCESS;
+    }
+
+    public enum NoticeTone {
+        SUCCESS,
+        WARNING,
+        FAILURE
     }
 
     public void sendLines(CommandSender sender, String key, Map<String, String> placeholders) {

@@ -1,5 +1,10 @@
 prefix: "&9[BodyGuard]&r "
 
+notification:
+  success: "&a&l✓ 実行しました"
+  warning: "&e&l! 確認してください"
+  failure: "&c&l✕ 実行できませんでした"
+
 help:
   - "&b----- BodyGuard ヘルプ -----"
   - "&f/bg summon <mob> &7- 護衛を召喚"
