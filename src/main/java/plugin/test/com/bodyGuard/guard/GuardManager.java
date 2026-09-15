@@ -33,11 +33,14 @@ import plugin.test.com.bodyGuard.util.LocationUtil;
 /** Owns the registry and all BodyGuard metadata operations. */
 public final class GuardManager {
 
+    private static final long MISSING_CONFIRMATION_MILLIS = 5_000L;
+
     private final BodyGuard plugin;
     private final GuardStorage storage;
     private final NamespacedKeys keys;
     private final PlayerDataStorage playerDataStorage;
     private final Map<UUID, GuardData> guards = new LinkedHashMap<>();
+    private final Map<UUID, Long> missingSince = new LinkedHashMap<>();
     private boolean dirty;
 
     public GuardManager(BodyGuard plugin, GuardStorage storage, NamespacedKeys keys,
@@ -50,6 +53,7 @@ public final class GuardManager {
 
     public void load(Map<UUID, GuardData> savedGuards) {
         guards.clear();
+        missingSince.clear();
         if (savedGuards != null) {
             guards.putAll(savedGuards);
         }
@@ -189,6 +193,7 @@ public final class GuardManager {
         Byte pdcFavorite = pdc.get(keys.favorite(), PersistentDataType.BYTE);
         data.setFavorite(previous != null ? previous.isFavorite() : pdcFavorite != null && pdcFavorite != 0);
         guards.put(entityId, data);
+        missingSince.remove(entityId);
         dirty = true;
 
         // The entity UUID is authoritative. This repairs an incomplete saved PDC entry.
@@ -722,7 +727,14 @@ public final class GuardManager {
                 }
                 continue;
             }
-            if (!(entity instanceof Mob) || entity.isDead() || !entity.isValid() || getGuardData(entity) == null) {
+            missingSince.remove(data.getGuardId());
+            // A cross-world teleport can briefly expose the old entity wrapper as
+            // invalid. The UUID lookup will become null or resolve to the new wrapper
+            // on a later cleanup pass, so that transient state is not proof of loss.
+            if (entity.isDead() || !entity.isValid()) {
+                continue;
+            }
+            if (!(entity instanceof Mob) || getGuardData(entity) == null) {
                 removeMissingRecord(data);
                 changed = true;
             } else {
@@ -761,12 +773,24 @@ public final class GuardManager {
     }
 
     private boolean isDefinitelyMissing(GuardData data) {
-        if (data == null || Bukkit.getEntity(data.getGuardId()) != null) {
+        if (data == null) {
+            return false;
+        }
+        UUID guardId = data.getGuardId();
+        if (Bukkit.getEntity(guardId) != null) {
+            missingSince.remove(guardId);
             return false;
         }
         Location last = data.getLastLocation();
         World world = last == null ? null : last.getWorld();
-        return world != null && world.isChunkLoaded(last.getBlockX() >> 4, last.getBlockZ() >> 4);
+        if (world == null || !world.isChunkLoaded(last.getBlockX() >> 4, last.getBlockZ() >> 4)) {
+            missingSince.remove(guardId);
+            return false;
+        }
+
+        long now = System.currentTimeMillis();
+        Long firstMissing = missingSince.putIfAbsent(guardId, now);
+        return firstMissing != null && now - firstMissing >= MISSING_CONFIRMATION_MILLIS;
     }
 
     private boolean isLastKnownChunk(GuardData data, Chunk chunk) {
@@ -781,6 +805,7 @@ public final class GuardManager {
         if (data == null || guards.remove(data.getGuardId()) == null) {
             return;
         }
+        missingSince.remove(data.getGuardId());
         clearCompanion(data);
         dirty = true;
         Player owner = Bukkit.getPlayer(data.getOwnerId());
