@@ -184,16 +184,20 @@ public final class GuardTask extends BukkitRunnable {
         double radius = plugin.getGuardRadius();
         double returnDistance = Math.max(plugin.getGuardReturnDistance(), radius + 2.0);
 
+        // Returning to the assigned guard point takes priority over combat. Check
+        // the teleport leash before any active-target handling so even a guard in
+        // the middle of a fight is recalled as soon as it reaches this distance.
+        if (distanceSquared >= returnDistance * returnDistance) {
+            teleportToAnchor(data, mob, anchor);
+            return;
+        }
+
         // The patrol radius is a hard combat leash. Once crossed, abandon even an
         // owner-assist target so a guard cannot keep chasing indefinitely.
         if (distanceSquared > radius * radius) {
             data.clearCombat();
             mob.setTarget(null);
-            if (distanceSquared >= returnDistance * returnDistance) {
-                teleportToAnchor(data, mob, anchor);
-            } else {
-                LocationUtil.moveToward(mob, anchor, plugin.getFollowMoveSpeed());
-            }
+            LocationUtil.moveToward(mob, anchor, plugin.getFollowMoveSpeed());
             return;
         }
 
