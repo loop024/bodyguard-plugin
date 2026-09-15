@@ -27,7 +27,7 @@ public final class GuardDeathListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onDeath(EntityDeathEvent event) {
-        GuardData data = manager.removeGuard(event.getEntity());
+        GuardData data = manager.removeGuard(event.getEntity().getUniqueId());
         if (data == null) {
             return;
         }

@@ -33,10 +33,6 @@ import plugin.test.com.bodyGuard.util.LocationUtil;
 /** Owns the registry and all BodyGuard metadata operations. */
 public final class GuardManager {
 
-    // Entity registration can briefly lag behind chunk loading during startup,
-    // cross-world teleports and server implementations that load entities in a
-    // separate phase. Never turn that short window into destructive data loss.
-    private static final long MISSING_CONFIRMATION_MILLIS = 60_000L;
     private static final int MISSING_SEARCH_CHUNK_RADIUS = 2;
 
     private final BodyGuard plugin;
@@ -44,7 +40,6 @@ public final class GuardManager {
     private final NamespacedKeys keys;
     private final PlayerDataStorage playerDataStorage;
     private final Map<UUID, GuardData> guards = new LinkedHashMap<>();
-    private final Map<UUID, Long> missingSince = new LinkedHashMap<>();
     private boolean dirty;
 
     public GuardManager(BodyGuard plugin, GuardStorage storage, NamespacedKeys keys,
@@ -57,7 +52,6 @@ public final class GuardManager {
 
     public void load(Map<UUID, GuardData> savedGuards) {
         guards.clear();
-        missingSince.clear();
         if (savedGuards != null) {
             guards.putAll(savedGuards);
         }
@@ -217,7 +211,6 @@ public final class GuardManager {
         Byte pdcFavorite = pdc.get(keys.favorite(), PersistentDataType.BYTE);
         data.setFavorite(previous != null ? previous.isFavorite() : pdcFavorite != null && pdcFavorite != 0);
         guards.put(entityId, data);
-        missingSince.remove(entityId);
         dirty = true;
 
         // The entity UUID is authoritative. This repairs an incomplete saved PDC entry.
@@ -727,11 +720,22 @@ public final class GuardManager {
         if (entity == null) {
             return null;
         }
-        GuardData data = getGuardData(entity);
+        return removeGuard(entity.getUniqueId());
+    }
+
+    /**
+     * Removes a guard whose death was confirmed by an EntityDeathEvent. The UUID
+     * registry is used directly because another plugin may alter PDC during the
+     * same death event before this listener runs.
+     */
+    public GuardData removeGuard(UUID guardId) {
+        if (guardId == null) {
+            return null;
+        }
+        GuardData data = guards.remove(guardId);
         if (data == null) {
             return null;
         }
-        guards.remove(data.getGuardId());
         clearCompanion(data);
         dirty = true;
         save();
@@ -739,34 +743,22 @@ public final class GuardManager {
     }
 
     public void cleanup() {
-        boolean changed = false;
         for (GuardData data : new ArrayList<>(guards.values())) {
             Entity entity = findLoadedEntity(data);
             if (entity == null) {
-                // A null lookup alone is ambiguous. It is safe to remove the record only
-                // when the last known chunk is loaded and the UUID is still absent there.
-                if (isDefinitelyMissing(data)) {
-                    removeMissingRecord(data);
-                    changed = true;
-                }
+                // A failed UUID lookup does not prove death. Keep the record so a
+                // temporarily unavailable or later reloaded guard can recover.
                 continue;
             }
-            missingSince.remove(data.getGuardId());
             // A cross-world teleport can briefly expose the old entity wrapper as
             // invalid. The UUID lookup will become null or resolve to the new wrapper
             // on a later cleanup pass, so that transient state is not proof of loss.
             if (entity.isDead() || !entity.isValid()) {
                 continue;
             }
-            if (!(entity instanceof Mob) || getGuardData(entity) == null) {
-                removeMissingRecord(data);
-                changed = true;
-            } else {
+            if (entity instanceof Mob) {
                 data.setLastLocation(entity.getLocation());
             }
-        }
-        if (changed) {
-            save();
         }
     }
 
@@ -780,14 +772,6 @@ public final class GuardManager {
             trackLoadedEntity(entity);
             if (guards.size() != before) {
                 dirty = true;
-                changed = true;
-            }
-        }
-        // Once this chunk is loaded, saved records whose last confirmed position is
-        // inside it can be checked without guessing or force-loading another chunk.
-        for (GuardData data : new ArrayList<>(guards.values())) {
-            if (isLastKnownChunk(data, chunk) && isDefinitelyMissing(data)) {
-                removeMissingRecord(data);
                 changed = true;
             }
         }
@@ -812,27 +796,6 @@ public final class GuardManager {
         if (changed) {
             save();
         }
-    }
-
-    private boolean isDefinitelyMissing(GuardData data) {
-        if (data == null) {
-            return false;
-        }
-        UUID guardId = data.getGuardId();
-        if (findLoadedEntity(data) != null) {
-            missingSince.remove(guardId);
-            return false;
-        }
-        Location last = data.getLastLocation();
-        World world = last == null ? null : last.getWorld();
-        if (world == null || !world.isChunkLoaded(last.getBlockX() >> 4, last.getBlockZ() >> 4)) {
-            missingSince.remove(guardId);
-            return false;
-        }
-
-        long now = System.currentTimeMillis();
-        Long firstMissing = missingSince.putIfAbsent(guardId, now);
-        return firstMissing != null && now - firstMissing >= MISSING_CONFIRMATION_MILLIS;
     }
 
     /**
@@ -875,29 +838,6 @@ public final class GuardManager {
         return null;
     }
 
-    private boolean isLastKnownChunk(GuardData data, Chunk chunk) {
-        Location last = data == null ? null : data.getLastLocation();
-        return last != null && last.getWorld() != null
-                && last.getWorld().getUID().equals(chunk.getWorld().getUID())
-                && (last.getBlockX() >> 4) == chunk.getX()
-                && (last.getBlockZ() >> 4) == chunk.getZ();
-    }
-
-    private void removeMissingRecord(GuardData data) {
-        if (data == null || guards.remove(data.getGuardId()) == null) {
-            return;
-        }
-        missingSince.remove(data.getGuardId());
-        clearCompanion(data);
-        dirty = true;
-        Player owner = Bukkit.getPlayer(data.getOwnerId());
-        if (owner != null && owner.isOnline()) {
-            plugin.getMessages().send(owner, "guard-missing-removed",
-                    "&e存在を確認できなくなった {name} を護衛一覧から整理しました。",
-                    Map.of("name", data.getName()));
-        }
-    }
-
     public void handleChunkUnload(Chunk chunk) {
         if (chunk == null) {
             return;
@@ -905,7 +845,6 @@ public final class GuardManager {
         for (Entity entity : chunk.getEntities()) {
             GuardData data = getGuardData(entity);
             if (data != null) {
-                missingSince.remove(data.getGuardId());
                 data.setLastLocation(entity.getLocation());
                 dirty = true;
             }
