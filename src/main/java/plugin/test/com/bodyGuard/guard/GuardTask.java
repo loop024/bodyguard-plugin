@@ -235,7 +235,7 @@ public final class GuardTask extends BukkitRunnable {
 
     private void teleportNearOwner(GuardData data, Mob mob, Location ownerLocation) {
         Location destination = LocationUtil.findSafeLocation(
-                ownerLocation, Math.floorMod(data.getGuardId().hashCode(), 13));
+                ownerLocation, Math.floorMod(data.getGuardId().hashCode(), 13), mob);
         if (destination == null || !mob.teleport(destination)) {
             return;
         }
@@ -247,7 +247,7 @@ public final class GuardTask extends BukkitRunnable {
 
     private void teleportToAnchor(GuardData data, Mob mob, Location anchor) {
         Location destination = LocationUtil.findSafeLocation(
-                anchor, Math.floorMod(data.getGuardId().hashCode(), 13));
+                anchor, Math.floorMod(data.getGuardId().hashCode(), 13), mob);
         if (destination == null || !mob.teleport(destination)) {
             return;
         }

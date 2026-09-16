@@ -78,8 +78,12 @@ public final class GuardListQuery {
     }
 
     private boolean matchesFilter(GuardData data, BodyGuardMenuHolder.GuardFilter filter) {
+        if (filter == BodyGuardMenuHolder.GuardFilter.HISTORY) return data.isRetired();
+        if (data.isRetired()) return false;
+        if (filter == BodyGuardMenuHolder.GuardFilter.MISSING)
+            return manager.status(data) == GuardData.Status.MISSING;
         if (filter == null || filter == BodyGuardMenuHolder.GuardFilter.ALL) {
-            return true;
+            return manager.status(data) != GuardData.Status.MISSING;
         }
         if (filter == BodyGuardMenuHolder.GuardFilter.FAVORITE) {
             return data.isFavorite();

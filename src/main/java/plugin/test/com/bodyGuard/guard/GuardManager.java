@@ -44,6 +44,17 @@ public final class GuardManager {
     private final Map<UUID, GuardData> guards = new LinkedHashMap<>();
     private final Set<GuardChunk> managedChunks = new LinkedHashSet<>();
     private boolean dirty;
+    private final Map<String, Long> failureWarnings = new LinkedHashMap<>();
+    private final Map<UUID, Integer> searchOffsets = new LinkedHashMap<>();
+    private int searchBudget = 32;
+
+    public void reportFailure(String operation, UUID guardId, RuntimeException failure) {
+        long now = System.currentTimeMillis();
+        if (now - failureWarnings.getOrDefault(operation, 0L) < 30000) return;
+        failureWarnings.put(operation, now);
+        plugin.getLogger().log(java.util.logging.Level.WARNING,
+                "BodyGuard " + operation + " に失敗しました。対象: " + guardId, failure);
+    }
 
     public GuardManager(BodyGuard plugin, GuardStorage storage, NamespacedKeys keys,
                         PlayerDataStorage playerDataStorage) {
@@ -83,6 +94,27 @@ public final class GuardManager {
 
     public boolean isStorageHealthy() {
         return storage.isHealthy() && playerDataStorage.isHealthy();
+    }
+
+    public GuardData.Status status(GuardData data) {
+        if (data.isDeathConfirmed()) return GuardData.Status.DEAD;
+        if (data.isDeletionPending()) return data.isOperationCompleted()
+                ? GuardData.Status.DELETED : GuardData.Status.DELETE_PENDING;
+        if (data.isReleasePending()) return data.isOperationCompleted()
+                ? GuardData.Status.RELEASED : GuardData.Status.RELEASE_PENDING;
+        Entity entity = Bukkit.getEntity(data.getGuardId());
+        if (entity instanceof Mob && EntityUtil.isAlive(entity)) return GuardData.Status.AVAILABLE;
+        Location last = data.getLastLocation();
+        if (last == null) return data.getSavedLast() == null
+                ? GuardData.Status.MISSING : GuardData.Status.WORLD_UNAVAILABLE;
+        if (!last.getWorld().isChunkLoaded(last.getBlockX() >> 4, last.getBlockZ() >> 4))
+            return GuardData.Status.UNLOADED;
+        return data.getMissingSince() > 0 && System.currentTimeMillis() - data.getMissingSince() >= 30000
+                ? GuardData.Status.MISSING : GuardData.Status.CHECKING;
+    }
+
+    public List<GuardData> getHistory(UUID ownerId) {
+        return guards.values().stream().filter(data -> ownerId.equals(data.getOwnerId()) && data.isRetired()).toList();
     }
 
     /** Persists the current registry even when no change was recorded, for plugin shutdown. */
@@ -153,17 +185,33 @@ public final class GuardManager {
                 mob.getUniqueId(), owner.getUniqueId(), mob.getType(), GuardMode.FOLLOW,
                 name, ownerName, null, location, nameNumber);
 
-        saveOriginalSettings(mob);
-        guards.put(data.getGuardId(), data);
-        dirty = true;
-        applyPdc(mob, data);
-        mob.setAware(true);
-        configureGuard(mob, data);
-        updateManagedChunks();
-        save();
-        return data;
+        GuardData previous = guards.get(data.getGuardId());
+        if (previous != null && !previous.getOwnerId().equals(owner.getUniqueId())) return null;
+        try {
+            saveOriginalSettings(mob);
+            data.observed();
+            guards.put(data.getGuardId(), data);
+            dirty = true;
+            applyPdc(mob, data);
+            mob.setAware(true);
+            configureGuard(mob, data);
+            if (!persistNow()) throw new IllegalStateException("護衛の登録を保存できませんでした。");
+            return data;
+        } catch (RuntimeException failure) {
+            if (previous == null) guards.remove(data.getGuardId());
+            else guards.put(data.getGuardId(), previous);
+            dirty = true;
+            try {
+                restoreOriginalSettings(mob);
+                clearPdc(mob);
+            } catch (RuntimeException rollbackFailure) {
+                failure.addSuppressed(rollbackFailure);
+            }
+            reportFailure("register", data.getGuardId(), failure);
+            owner.sendMessage("§c[BodyGuard] 登録できませんでした。保存先とサーバーログを確認してください。");
+            return null;
+        }
     }
-
     /** Registers a BodyGuard found in a loaded chunk after a restart. */
     public GuardData trackLoadedEntity(Entity entity) {
         if (!(entity instanceof Mob mob)) {
@@ -217,12 +265,16 @@ public final class GuardManager {
         }
 
         Location anchor = previous == null ? readAnchorFromPdc(pdc) : previous.getAnchorLocation();
-        if (anchor == null && mode != GuardMode.FOLLOW) {
+        if (anchor == null && mode != GuardMode.FOLLOW && (previous == null || previous.getSavedAnchor() == null)) {
             anchor = entity.getLocation();
         }
         GuardData data = new GuardData(
                 entityId, ownerId, mob.getType(), mode, name, ownerName, anchor,
                 entity.getLocation(), nameNumber);
+        if (previous != null && previous.getSavedAnchor() != null && anchor == null) {
+            data.setSavedPositions(previous.getSavedAnchor(), SavedPosition.of(entity.getLocation()));
+        }
+        data.observed();
         Byte pdcFavorite = pdc.get(keys.favorite(), PersistentDataType.BYTE);
         data.setFavorite(previous != null ? previous.isFavorite() : pdcFavorite != null && pdcFavorite != 0);
         guards.put(entityId, data);
@@ -616,7 +668,7 @@ public final class GuardManager {
         if (owner == null || !EntityUtil.isAlive(owner) || guard == null) {
             return false;
         }
-        Location destination = LocationUtil.findSafeLocation(owner.getLocation(), preferredIndex);
+        Location destination = LocationUtil.findSafeLocation(owner.getLocation(), preferredIndex, guard);
         if (destination == null || !guard.teleport(destination)) {
             return false;
         }
@@ -741,10 +793,14 @@ public final class GuardManager {
         if (guardId == null) {
             return null;
         }
-        GuardData data = guards.remove(guardId);
+        GuardData data = guards.get(guardId);
         if (data == null) {
             return null;
         }
+        if (data.isRetired()) return null;
+        data.setDeathConfirmed(true);
+        data.setDeletionPending(true);
+        data.setOperationCompleted(true);
         clearCompanion(data);
         dirty = true;
         save();
@@ -757,7 +813,14 @@ public final class GuardManager {
             if (entity instanceof Mob mob && entity.isValid() && !entity.isDead()) {
                 if (data.isDeletionPending()) finalizePendingDeletion(data, mob);
                 else if (data.isReleasePending()) finalizePendingRelease(data, mob);
-                else data.setLastLocation(entity.getLocation());
+                else {
+                    data.setLastLocation(entity.getLocation());
+                    data.observed();
+                    dirty = true;
+                }
+            } else if (!data.isRetired() && data.getMissingSince() == 0) {
+                data.setMissingSince(System.currentTimeMillis());
+                dirty = true;
             }
         }
     }

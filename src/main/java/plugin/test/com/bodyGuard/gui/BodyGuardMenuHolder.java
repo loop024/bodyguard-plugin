@@ -25,13 +25,15 @@ public final class BodyGuardMenuHolder implements InventoryHolder {
     }
 
     public enum GuardFilter {
-        ALL("すべて"),
+        ALL("通常の護衛"),
         FAVORITE("お気に入り"),
         INJURED("負傷中"),
         FOLLOW("追従中"),
         STAY("待機中"),
         GUARD("警備中"),
-        UNKNOWN("状態を確認できない護衛");
+        UNKNOWN("状態を確認できない護衛"),
+        MISSING("所在不明"),
+        HISTORY("処理待ち・履歴");
 
         private final String japaneseName;
 

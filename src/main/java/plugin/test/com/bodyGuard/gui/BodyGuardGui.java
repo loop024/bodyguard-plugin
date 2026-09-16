@@ -248,6 +248,10 @@ public final class BodyGuardGui implements Listener {
                 ? BodyGuardMenuHolder.GuardSort.STANDARD : sort;
         List<GuardData> all = manager.getGuards(player.getUniqueId());
         List<GuardData> filtered = listQuery.filterAndSort(player, all, safeFilter, safeSort);
+        if (safeFilter == BodyGuardMenuHolder.GuardFilter.HISTORY) {
+            all = manager.getHistory(player.getUniqueId());
+            filtered = listQuery.filterAndSort(player, all, safeFilter, safeSort);
+        }
         int pages = pageCount(filtered.size());
         int page = clampPage(requestedPage, pages);
         List<UUID> pageIds = new ArrayList<>();
@@ -301,7 +305,7 @@ public final class BodyGuardGui implements Listener {
         inventory.setItem(50, item(Material.CHEST, text("gui.management", "&e管理"),
                 List.of(text("gui.management-lore", "&7全員の契約解除などを管理します。"),
                         text("gui.click-to-use", "&bクリックして開く"))));
-        inventory.setItem(51, item(Material.CLOCK, text("gui.refresh", "&b手動更新"),
+        inventory.setItem(51, item(Material.CLOCK, text("gui.refresh-organize", "&b一覧を整理・更新"),
                 List.of(text("gui.refresh-lore", "&7護衛の状態と一覧を読み直します。"))));
         inventory.setItem(NEXT_SLOT, navigationItem(Material.ARROW, "gui.next", "&b次のページ",
                 page + 1 < pages, text("gui.next-lore", "&7次のページを表示します。")));
@@ -356,7 +360,7 @@ public final class BodyGuardGui implements Listener {
                         "limit", summonLimitLabel(player))),
                 List.of(summonLimitLore(player))));
         inventory.setItem(49, resultItem(player));
-        inventory.setItem(50, item(Material.CLOCK, text("gui.refresh", "&b手動更新"),
+        inventory.setItem(50, item(Material.CLOCK, text("gui.refresh-organize", "&b一覧を整理・更新"),
                 List.of(text("gui.summon-refresh-lore", "&7召喚候補と設定を読み直します。"))));
         inventory.setItem(51, item(Material.BOOK, text("gui.summon-guide", "&b召喚方法"),
                 List.of(text("gui.summon-guide-lore", "&7Mobをクリックすると召喚します。"))));
@@ -446,6 +450,8 @@ public final class BodyGuardGui implements Listener {
                 manager.countGuards(player.getUniqueId()), manager.countGuards(player.getUniqueId()));
         Inventory inventory = createInventory(holder, MANAGEMENT_SIZE, text("gui.management-title", "&6護衛管理"));
         fillInventory(inventory, Material.ORANGE_STAINED_GLASS_PANE);
+        inventory.setItem(10, item(Material.SPYGLASS, "§e所在不明の護衛", List.of("§7最終確認場所と状態を表示します。")));
+        inventory.setItem(11, item(Material.BOOK, "§b処理待ち・履歴", List.of("§7死亡・解除・削除の記録を確認します。")));
         int count = manager.countGuards(player.getUniqueId());
         inventory.setItem(4, item(Material.CHEST, text("gui.management-summary", "&e現在の護衛: &f{count}体",
                 Map.of("count", String.valueOf(count))),
@@ -654,10 +660,13 @@ public final class BodyGuardGui implements Listener {
 
     private void refreshList(Player player, BodyGuardMenuHolder holder, Inventory inventory) {
         List<GuardData> all = manager.getGuards(player.getUniqueId());
+        if (holder.getFilter() == BodyGuardMenuHolder.GuardFilter.HISTORY)
+            all = manager.getHistory(player.getUniqueId());
         int filteredCount = listQuery.countMatching(all, holder.getFilter());
         fillHeader(inventory, player, false, holder.getFilter(), holder.getSort(), filteredCount);
         for (int index = 0; index < holder.getGuardIds().size(); index++) {
-            GuardData data = ownedGuard(player, holder.getGuardIds().get(index));
+            GuardData data = manager.getGuardData(holder.getGuardIds().get(index));
+            if (data != null && !player.getUniqueId().equals(data.getOwnerId())) data = null;
             inventory.setItem(CONTENT_START + index, data == null ? invalidGuardIcon() : guardIcon(player, data));
         }
         inventory.setItem(49, resultItem(player));
@@ -1236,6 +1245,10 @@ public final class BodyGuardGui implements Listener {
 
     private void handleManagementClick(Player player, BodyGuardMenuHolder holder, int slot) {
         switch (slot) {
+            case 10 -> transition(player, () -> openList(player, 0,
+                    BodyGuardMenuHolder.GuardFilter.MISSING, holder.getSort()));
+            case 11 -> transition(player, () -> openList(player, 0,
+                    BodyGuardMenuHolder.GuardFilter.HISTORY, holder.getSort()));
             case 13 -> {
                 if (hasPermission(player, "bodyguard.releaseall")) {
                     transition(player, () -> openAllReleaseConfirmation(player, holder.getPage(),
@@ -1408,7 +1421,7 @@ public final class BodyGuardGui implements Listener {
 
     private GuardData ownedGuard(Player player, UUID guardId) {
         GuardData data = manager.getGuardData(guardId);
-        return data != null && player != null && player.getUniqueId().equals(data.getOwnerId())
+        return data != null && !data.isRetired() && player != null && player.getUniqueId().equals(data.getOwnerId())
                 ? data : null;
     }
 
@@ -1421,6 +1434,12 @@ public final class BodyGuardGui implements Listener {
     }
 
     private ItemStack guardIcon(Player player, GuardData data) {
+        if (data.isRetired()) {
+            return item(Material.BARRIER, "§7" + ChatColor.stripColor(plugin.color(data.getName()))
+                    + " §8— §e" + manager.status(data).label(),
+                    List.of("§7通常の護衛数には含まれません。", "§7このカードからは操作できません。",
+                            "§7一覧を整理すると通常一覧から取り除きます。"));
+        }
         Mob mob = manager.getLoadedMob(data);
         List<String> lore = new ArrayList<>();
         lore.add(text("gui.guard-mob", "&7種類: &f{mob}",
@@ -1607,7 +1626,7 @@ public final class BodyGuardGui implements Listener {
         inventory.setItem(36, item(Material.ARROW, text("gui.back", "&b一覧に戻る"),
                 List.of(text("gui.back-lore", "&7表示条件を維持して一覧へ戻ります。"))));
         inventory.setItem(40, resultItem(player));
-        inventory.setItem(42, item(Material.CLOCK, text("gui.refresh", "&b手動更新"),
+        inventory.setItem(42, item(Material.CLOCK, text("gui.refresh-organize", "&b一覧を整理・更新"),
                 List.of(text("gui.refresh-lore", "&7HP・距離・状態を読み直します。"))));
         inventory.setItem(44, item(Material.BARRIER, text("gui.close", "&c閉じる"),
                 List.of(text("gui.close-lore", "&7メニューを閉じます。"))));
@@ -1699,25 +1718,23 @@ public final class BodyGuardGui implements Listener {
     }
 
     private void addUnavailableLore(List<String> lore, GuardData data) {
-        if (data != null && data.isDeletionPending()) {
-            lore.add(text("gui.guard-deletion-pending", "&7状態: &c削除予約中"));
-            lore.add(text("gui.guard-deletion-pending-next", "&7チャンクが自然に読み込まれた時点で完全削除します。"));
-            return;
+        if (data == null) return;
+        lore.add("§7状態: §e" + manager.status(data).label());
+        plugin.test.com.bodyGuard.guard.SavedPosition last = data.getSavedLast();
+        if (last != null) {
+            lore.add("§7最終位置: §f" + last.worldName() + " " + (int) Math.floor(last.x())
+                    + ", " + (int) Math.floor(last.y()) + ", " + (int) Math.floor(last.z()));
         }
-        if (data != null && data.isReleasePending()) {
-            lore.add(text("gui.guard-release-pending", "&7状態: &e解除予約中"));
-            lore.add(text("gui.guard-release-pending-next", "&7チャンクが自然に読み込まれた時点で解除します。"));
-            return;
-        }
-        lore.add(text("gui.guard-status-unknown", "&7状態: &e現在確認できません。"));
-        lore.add(text("gui.unavailable-next", "&7状態を確認できる場所で手動更新してください。"));
-        Location last = data == null ? null : data.getLastLocation();
-        if (last != null && last.getWorld() != null) {
-            lore.add(text("gui.last-confirmed-world", "&7最後に確認したワールド: &f{world}",
-                    Map.of("world", last.getWorld().getName())));
-        }
+        lore.add("§7最終確認: §f" + (data.getLastSeen() == 0 ? "記録なし"
+                : java.time.format.DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm:ss")
+                .withZone(java.time.ZoneId.systemDefault()).format(java.time.Instant.ofEpochMilli(data.getLastSeen()))));
+        lore.add(switch (manager.status(data)) {
+            case WORLD_UNAVAILABLE -> "§e管理者にワールドの読み込みを依頼してください。";
+            case MISSING -> "§e最終位置を確認し、不要なら詳細から契約解除してください。";
+            case UNLOADED -> "§7最終位置に近づくと再確認できます。";
+            default -> "§7少し待って「一覧を整理」を押してください。";
+        });
     }
-
     private void addHealthBar(List<String> lore, Mob mob) {
         HealthInfo health = healthInfo(mob);
         if (health == null) {

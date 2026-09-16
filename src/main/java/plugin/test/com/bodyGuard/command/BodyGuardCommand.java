@@ -237,6 +237,10 @@ public final class BodyGuardCommand implements CommandExecutor {
 
         Location spawnLocation = summonLocation(player,
                 manager.countGuards(player.getUniqueId()));
+        if (spawnLocation == null) {
+            messages.send(player, "no-safe-location", "&c安全な場所が見つかりません。広い平らな場所で再実行してください。");
+            return false;
+        }
         World world = player.getWorld();
         Mob mob;
         try {
@@ -641,7 +645,7 @@ public final class BodyGuardCommand implements CommandExecutor {
         // obscuring the mobs, a dense stack is killed by Minecraft's entity
         // cramming rule when an operator summons beyond the normal limit.
         Location safe = LocationUtil.findSafeLocation(requested, summonIndex);
-        return safe == null ? requested : safe;
+        return safe;
     }
 
     private Player requirePlayer(CommandSender sender) {
