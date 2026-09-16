@@ -289,6 +289,11 @@ public final class BodyGuard extends JavaPlugin {
         return getConfig().getBoolean("guard-management.keep-chunks-loaded-while-owner-online", true);
     }
 
+    public int getManagedChunkLimit() { return intSetting("guard-management.max-loaded-chunks", 64, 1, 1024); }
+    public int getOwnerChunkLimit() { return intSetting("guard-management.max-loaded-chunks-per-owner", 16, 1, 256); }
+    public int getChunkLoadsPerCycle() { return intSetting("guard-management.chunk-loads-per-cycle", 2, 1, 16); }
+    public int getSearchChunksPerCycle() { return intSetting("guard-management.search-chunks-per-cycle", 32, 1, 256); }
+
     public boolean stayGuardsDefendOwner() {
         return getConfig().getBoolean("stay-mode.defend-owner", true);
     }

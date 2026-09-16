@@ -883,21 +883,22 @@ public final class GuardManager {
         }
         int centerX = last.getBlockX() >> 4;
         int centerZ = last.getBlockZ() >> 4;
-        for (int x = centerX - MISSING_SEARCH_CHUNK_RADIUS;
-             x <= centerX + MISSING_SEARCH_CHUNK_RADIUS; x++) {
-            for (int z = centerZ - MISSING_SEARCH_CHUNK_RADIUS;
-                 z <= centerZ + MISSING_SEARCH_CHUNK_RADIUS; z++) {
-                if (!world.isChunkLoaded(x, z)) {
-                    continue;
-                }
-                for (Entity candidate : world.getChunkAt(x, z).getEntities()) {
-                    if (guardId.equals(candidate.getUniqueId())) {
-                        return candidate;
-                    }
-                }
+        int offset = searchOffsets.getOrDefault(guardId, 0);
+        int checked = 0;
+        int diameter = MISSING_SEARCH_CHUNK_RADIUS * 2 + 1;
+        int area = diameter * diameter;
+        while (checked < area && searchBudget > 0) {
+            int index = (offset + checked) % area;
+            int x = centerX + index / diameter - MISSING_SEARCH_CHUNK_RADIUS;
+            int z = centerZ + index % diameter - MISSING_SEARCH_CHUNK_RADIUS;
+            checked++;
+            searchBudget--;
+            searchOffsets.put(guardId, (index + 1) % area);
+            if (!world.isChunkLoaded(x, z)) continue;
+            for (Entity candidate : world.getChunkAt(x, z).getEntities()) {
+                if (guardId.equals(candidate.getUniqueId())) return candidate;
             }
-        }
-        return null;
+        }        return null;
     }
 
     public void handleChunkUnload(Chunk chunk) {
@@ -950,15 +951,18 @@ public final class GuardManager {
      * as the owner logs out or the guard record is removed.
      */
     public void updateManagedChunks() {
+        searchBudget = plugin.getSearchChunksPerCycle();
         if (!plugin.keepGuardChunksLoaded()) {
             releaseManagedChunks();
             return;
         }
 
         Set<GuardChunk> desired = new LinkedHashSet<>();
+        Map<UUID, Set<GuardChunk>> perOwner = new LinkedHashMap<>();
         for (GuardData data : guards.values()) {
             Player owner = Bukkit.getPlayer(data.getOwnerId());
-            if (owner == null || !owner.isOnline() || data.isDeletionPending()) {
+            if (owner == null || !owner.isOnline() || data.isRetired()
+                    || status(data) == GuardData.Status.MISSING) {
                 continue;
             }
             Entity loaded = Bukkit.getEntity(data.getGuardId());
@@ -966,10 +970,16 @@ public final class GuardManager {
             if (location == null || location.getWorld() == null) {
                 continue;
             }
-            desired.add(new GuardChunk(location.getWorld().getUID(),
-                    location.getBlockX() >> 4, location.getBlockZ() >> 4));
+            GuardChunk requested = new GuardChunk(location.getWorld().getUID(),
+                    location.getBlockX() >> 4, location.getBlockZ() >> 4);
+            Set<GuardChunk> ownerChunks = perOwner.computeIfAbsent(data.getOwnerId(), ignored -> new LinkedHashSet<>());
+            if (ownerChunks.size() < plugin.getOwnerChunkLimit() && desired.size() < plugin.getManagedChunkLimit()) {
+                ownerChunks.add(requested);
+                desired.add(requested);
+            }
         }
 
+        int loads = 0;
         for (GuardChunk key : desired) {
             if (managedChunks.contains(key)) {
                 continue;
@@ -978,6 +988,8 @@ public final class GuardManager {
             if (world == null) {
                 continue;
             }
+            if (loads >= plugin.getChunkLoadsPerCycle()) break;
+            loads++;
             Chunk chunk = world.getChunkAt(key.x(), key.z());
             chunk.addPluginChunkTicket(plugin);
             managedChunks.add(key);

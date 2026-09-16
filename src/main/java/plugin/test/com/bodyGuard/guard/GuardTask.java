@@ -30,11 +30,32 @@ public final class GuardTask extends BukkitRunnable {
     @Override
     public void run() {
         executions++;
-        manager.updateManagedChunks();
+        try { manager.updateManagedChunks(); }
+        catch (RuntimeException failure) { manager.reportFailure("chunks", null, failure); }
         for (GuardData data : manager.getAllGuardData()) {
+            if (data.isRetired()) continue;
+            try {
+                tickGuard(data);
+            } catch (RuntimeException failure) {
+                manager.reportFailure("tick", data.getGuardId(), failure);
+            }
+        }
+        if (executions % 20L == 0L) {
+            try { manager.cleanup(); }
+            catch (RuntimeException failure) { manager.reportFailure("cleanup", null, failure); }
+        }
+        long autosaveTicks = plugin.getAutosaveIntervalTicks();
+        long executionsPerAutosave = Math.max(1L, autosaveTicks / 10L);
+        if (autosaveTicks > 0L && executions % executionsPerAutosave == 0L) {
+            manager.save();
+        }
+    }
+
+    private void tickGuard(GuardData data) {
+
             Mob mob = manager.getLoadedMob(data);
             if (mob == null) {
-                continue;
+                return;
             }
 
             if (data.updateLastLocation(mob.getLocation(), 0.25)) {
@@ -46,7 +67,7 @@ public final class GuardTask extends BukkitRunnable {
             if (owner == null) {
                 if (plugin.freezeOfflineGuards()) {
                     freeze(mob, data);
-                    continue;
+                    return;
                 }
                 if (data.isOfflineFrozen()) {
                     mob.setAware(true);
@@ -63,16 +84,6 @@ public final class GuardTask extends BukkitRunnable {
                 case STAY -> tickStay(data, mob, target);
                 case GUARD -> tickGuard(data, mob, target);
             }
-        }
-
-        if (executions % 20L == 0L) {
-            manager.cleanup();
-        }
-        long autosaveTicks = plugin.getAutosaveIntervalTicks();
-        long executionsPerAutosave = Math.max(1L, autosaveTicks / 10L);
-        if (autosaveTicks > 0L && executions % executionsPerAutosave == 0L) {
-            manager.save();
-        }
     }
 
     private LivingEntity validateCurrentTarget(Mob mob, GuardData data) {
