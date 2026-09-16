@@ -11,16 +11,34 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 /** Never replaces unreadable source data with an empty registry. */
 public final class SafeYamlFile {
+    public enum SaveResult {
+        SUCCESS,
+        READ_ONLY,
+        VALIDATION_FAILED,
+        IO_FAILED,
+        OUTCOME_UNCERTAIN
+    }
+
     private final JavaPlugin plugin;
     private final File file;
+    private final String expectedRoot;
     private boolean writable;
     private boolean healthy = true;
     private long lastWarning;
     private long lastSaved;
+    private long lastAttempt;
+    private int consecutiveFailures;
+    private String lastFailureReason;
+    private SaveResult lastSaveResult = SaveResult.SUCCESS;
 
     public SafeYamlFile(JavaPlugin plugin, String name) {
+        this(plugin, name, name.equals("guards.yml") ? "guards" : "players");
+    }
+
+    public SafeYamlFile(JavaPlugin plugin, String name, String expectedRoot) {
         this.plugin = plugin;
         this.file = new File(plugin.getDataFolder(), name);
+        this.expectedRoot = expectedRoot;
     }
 
     public YamlConfiguration load() {
@@ -55,25 +73,38 @@ public final class SafeYamlFile {
     private YamlConfiguration read(File source) throws Exception {
         YamlConfiguration result = new YamlConfiguration();
         result.load(source);
-        String root = file.getName().equals("guards.yml") ? "guards" : "players";
-        if (result.contains(root) && !result.isConfigurationSection(root)) {
-            throw new IOException("Invalid section: " + root);
+        if (result.contains(expectedRoot) && !result.isConfigurationSection(expectedRoot)) {
+            throw new IOException("Invalid section: " + expectedRoot);
         }
         return result;
     }
 
     public boolean save(YamlConfiguration configuration) {
-        if (!writable) return false;
+        return saveWithResult(configuration) == SaveResult.SUCCESS;
+    }
+
+    public SaveResult saveWithResult(YamlConfiguration configuration) {
+        lastAttempt = System.currentTimeMillis();
+        if (!writable) {
+            lastSaveResult = SaveResult.READ_ONLY;
+            lastFailureReason = "読み込み時の障害により読み取り専用です";
+            consecutiveFailures++;
+            return lastSaveResult;
+        }
         File temporary = null;
+        boolean replacementStarted = false;
         try {
             Files.createDirectories(file.getParentFile().toPath());
             temporary = File.createTempFile("bodyguard-", ".tmp", file.getParentFile());
             configuration.save(temporary);
+            // Validate the exact bytes that will replace the live file.
+            read(temporary);
             if (file.exists()) {
                 // Do not overwrite the last good backup with externally damaged YAML.
                 read(file);
                 Files.copy(file.toPath(), backup().toPath(), StandardCopyOption.REPLACE_EXISTING);
             }
+            replacementStarted = true;
             try {
                 Files.move(temporary.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE,
                         StandardCopyOption.REPLACE_EXISTING);
@@ -82,9 +113,18 @@ public final class SafeYamlFile {
             }
             healthy = true;
             lastSaved = System.currentTimeMillis();
-            return true;
+            consecutiveFailures = 0;
+            lastFailureReason = null;
+            lastSaveResult = SaveResult.SUCCESS;
+            return lastSaveResult;
         } catch (Exception failure) {
             healthy = false;
+            consecutiveFailures++;
+            lastFailureReason = failure.getClass().getSimpleName() + ": "
+                    + (failure.getMessage() == null ? "詳細なし" : failure.getMessage());
+            lastSaveResult = failure instanceof IOException
+                    ? (replacementStarted ? SaveResult.OUTCOME_UNCERTAIN : SaveResult.IO_FAILED)
+                    : SaveResult.VALIDATION_FAILED;
             long now = System.currentTimeMillis();
             if (now - lastWarning >= 30000L) {
                 lastWarning = now;
@@ -95,7 +135,7 @@ public final class SafeYamlFile {
                     }
                 }
             }
-            return false;
+            return lastSaveResult;
         } finally {
             if (temporary != null && temporary.exists()) temporary.delete();
         }
@@ -103,5 +143,9 @@ public final class SafeYamlFile {
 
     public boolean isHealthy() { return healthy && writable; }
     public long getLastSaved() { return lastSaved; }
+    public long getLastAttempt() { return lastAttempt; }
+    public int getConsecutiveFailures() { return consecutiveFailures; }
+    public String getLastFailureReason() { return lastFailureReason; }
+    public SaveResult getLastSaveResult() { return lastSaveResult; }
     private File backup() { return new File(file.getParentFile(), file.getName() + ".bak"); }
 }

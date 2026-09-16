@@ -297,26 +297,15 @@ public final class GuardManager {
         GuardData data = guards.get(entity.getUniqueId());
         PersistentDataContainer pdc = entity.getPersistentDataContainer();
         if (data != null) {
-            if ((data.isDeletionPending() || data.isReleasePending()) && !isMarked(pdc)) {
-                return null;
-            }
-            if (!isMarked(pdc)) {
-                guards.remove(entity.getUniqueId());
-                clearCompanion(data);
-                dirty = true;
-                return null;
-            }
-            if (data.isDeletionPending() && entity instanceof Mob mob) {
-                finalizePendingDeletion(data, mob);
-                return null;
-            }
-            if (data.isReleasePending() && entity instanceof Mob mob) {
-                finalizePendingRelease(data, mob);
-                return null;
-            }
-            return data;
+            // This is deliberately a read-only query. GUI rendering, filtering and
+            // combat checks must never complete operations or rewrite the registry.
+            if (data.isDeletionPending() || data.isReleasePending() || !isMarked(pdc)) return null;
+            UUID markedOwner = parseUuid(getString(pdc, keys.owner()));
+            return data.getOwnerId().equals(markedOwner) ? data : null;
         }
-        return isMarked(pdc) ? trackLoadedEntity(entity) : null;
+        // Registration/reconciliation is performed only by explicit load-event and
+        // startup paths through trackLoadedEntity().
+        return null;
     }
 
     /** Finds registry data by the persistent Guard UUID without loading an entity. */
@@ -399,10 +388,13 @@ public final class GuardManager {
                 continue;
             }
             boolean previous = data.isReleasePending();
+            boolean previousCompleted = data.isOperationCompleted();
             data.setReleasePending(true);
+            data.setOperationCompleted(false);
             dirty = true;
             if (!persistNow()) {
                 data.setReleasePending(previous);
+                data.setOperationCompleted(previousCompleted);
                 failed++;
                 continue;
             }
@@ -725,14 +717,17 @@ public final class GuardManager {
             }
             boolean oldRelease = data.isReleasePending();
             boolean oldDeletion = data.isDeletionPending();
+            boolean oldCompleted = data.isOperationCompleted();
             data.setReleasePending(false);
             data.setDeletionPending(true);
+            data.setOperationCompleted(false);
             dirty = true;
             // Commit the tombstone before touching the entity. Never infer absence
             // from a loaded chunk: its entity-loading phase may not have finished.
             if (!persistNow()) {
                 data.setReleasePending(oldRelease);
                 data.setDeletionPending(oldDeletion);
+                data.setOperationCompleted(oldCompleted);
                 failed++;
                 continue;
             }

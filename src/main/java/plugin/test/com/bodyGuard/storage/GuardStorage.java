@@ -30,16 +30,24 @@ public final class GuardStorage {
     private final JavaPlugin plugin;
     private final File file;
     private final SafeYamlFile safeFile;
+    private final SafeYamlFile quarantineFile;
 
     public GuardStorage(JavaPlugin plugin) {
         this.plugin = plugin;
         this.file = new File(plugin.getDataFolder(), "guards.yml");
         this.safeFile = new SafeYamlFile(plugin, "guards.yml");
+        this.quarantineFile = new SafeYamlFile(plugin, "quarantine.yml", "entries");
     }
 
     public Map<UUID, GuardData> load() {
         Map<UUID, GuardData> result = new LinkedHashMap<>();
         YamlConfiguration configuration = safeFile.load();
+        int version = configuration.getInt("version", 0);
+        if (version > 4) {
+            throw new IllegalStateException("guards.yml は未対応の新しい形式です (version="
+                    + version + ")。古いプラグインで上書きしません。");
+        }
+        YamlConfiguration quarantine = null;
 
         ConfigurationSection guards = configuration.getConfigurationSection("guards");
         if (guards == null) {
@@ -53,7 +61,7 @@ public final class GuardStorage {
                 guardId = UUID.fromString(idText);
                 ownerId = UUID.fromString(guards.getString(idText + ".owner", ""));
             } catch (IllegalArgumentException exception) {
-                plugin.getLogger().warning("Ignoring invalid BodyGuard UUID entry: " + idText);
+                quarantine = quarantine(quarantine, guards, idText, "護衛または所有者UUIDが不正です");
                 continue;
             }
 
@@ -62,7 +70,7 @@ public final class GuardStorage {
                 mobType = EntityType.valueOf(guards.getString(idText + ".mob-type", "ZOMBIE")
                         .toUpperCase(java.util.Locale.ROOT));
             } catch (IllegalArgumentException exception) {
-                plugin.getLogger().warning("Ignoring guard with invalid mob type: " + idText);
+                quarantine = quarantine(quarantine, guards, idText, "mob-typeが不正です");
                 continue;
             }
 
@@ -86,15 +94,48 @@ public final class GuardStorage {
                 result.put(guardId, data);
             } catch (RuntimeException exception) {
                 plugin.getLogger().log(Level.WARNING,
-                        "Ignoring malformed BodyGuard entry: " + idText, exception);
+                        "Malformed BodyGuard entry will be quarantined: " + idText, exception);
+                quarantine = quarantine(quarantine, guards, idText,
+                        exception.getClass().getSimpleName() + ": "
+                                + (exception.getMessage() == null ? "詳細なし" : exception.getMessage()));
             }
         }
+        if (quarantine != null && !quarantineFile.save(quarantine)) {
+            throw new IllegalStateException("不正な護衛データをquarantine.ymlへ保全できません。"
+                    + "元データを守るため読み込みを中止します。");
+        }
         return result;
+    }
+
+    private YamlConfiguration quarantine(YamlConfiguration target, ConfigurationSection guards,
+                                         String sourceId, String reason) {
+        if (target == null) {
+            target = quarantineFile.load();
+            if (!target.isConfigurationSection("entries")) target.createSection("entries");
+        }
+        String entry = "entries." + System.currentTimeMillis() + "-" + UUID.randomUUID();
+        target.set(entry + ".source-file", "guards.yml");
+        target.set(entry + ".source-id", sourceId);
+        target.set(entry + ".reason", reason);
+        target.set(entry + ".quarantined-at", System.currentTimeMillis());
+        ConfigurationSection source = guards.getConfigurationSection(sourceId);
+        if (source != null) {
+            for (Map.Entry<String, Object> value : source.getValues(true).entrySet()) {
+                if (!(value.getValue() instanceof ConfigurationSection)) {
+                    target.set(entry + ".raw." + value.getKey(), value.getValue());
+                }
+            }
+        } else {
+            target.set(entry + ".raw-value", guards.get(sourceId));
+        }
+        return target;
     }
 
     public boolean save(Collection<GuardData> guardData) {
         YamlConfiguration configuration = new YamlConfiguration();
         configuration.set("version", 4);
+        configuration.set("record-count", guardData.stream().filter(java.util.Objects::nonNull).count());
+        configuration.createSection("guards");
 
         for (GuardData data : guardData) {
             if (data == null) {

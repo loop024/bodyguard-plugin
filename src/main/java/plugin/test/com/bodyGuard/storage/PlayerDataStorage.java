@@ -105,27 +105,39 @@ public final class PlayerDataStorage {
         for (String idText : configuration.getConfigurationSection("players") == null
                 ? java.util.Set.<String>of()
                 : configuration.getConfigurationSection("players").getKeys(false)) {
+            UUID playerId;
             try {
-                UUID playerId = UUID.fromString(idText);
-                State state = State.valueOf(configuration.getString(
-                        "players." + idText + ".tutorial", "COMPLETED").toUpperCase(java.util.Locale.ROOT));
-                states.put(playerId, state);
-                String companionText = configuration.getString("players." + idText + ".companion");
-                if (companionText != null && !companionText.isBlank()) {
-                    companions.put(playerId, UUID.fromString(companionText));
-                }
-                for (String friendText : configuration.getStringList("players." + idText + ".friends")) {
-                    try {
-                        UUID friendId = UUID.fromString(friendText);
-                        if (!friendId.equals(playerId)) {
-                            friends.computeIfAbsent(playerId, ignored -> new HashSet<>()).add(friendId);
-                        }
-                    } catch (IllegalArgumentException exception) {
-                        plugin.getLogger().warning("Ignoring invalid friend UUID for " + idText + ": " + friendText);
-                    }
-                }
+                playerId = UUID.fromString(idText);
             } catch (IllegalArgumentException exception) {
-                plugin.getLogger().warning("Ignoring invalid tutorial player entry: " + idText);
+                plugin.getLogger().warning("Ignoring invalid player UUID entry: " + idText);
+                continue;
+            }
+            String path = "players." + idText;
+            try {
+                State state = State.valueOf(configuration.getString(
+                        path + ".tutorial", "COMPLETED").toUpperCase(java.util.Locale.ROOT));
+                states.put(playerId, state);
+            } catch (IllegalArgumentException exception) {
+                plugin.getLogger().warning("Ignoring invalid tutorial state for: " + idText);
+            }
+            String companionText = configuration.getString(path + ".companion");
+            if (companionText != null && !companionText.isBlank()) {
+                try {
+                    companions.put(playerId, UUID.fromString(companionText));
+                } catch (IllegalArgumentException exception) {
+                    plugin.getLogger().warning("Ignoring invalid companion UUID for "
+                            + idText + ": " + companionText);
+                }
+            }
+            for (String friendText : configuration.getStringList(path + ".friends")) {
+                try {
+                    UUID friendId = UUID.fromString(friendText);
+                    if (!friendId.equals(playerId)) {
+                        friends.computeIfAbsent(playerId, ignored -> new HashSet<>()).add(friendId);
+                    }
+                } catch (IllegalArgumentException exception) {
+                    plugin.getLogger().warning("Ignoring invalid friend UUID for " + idText + ": " + friendText);
+                }
             }
         }
     }
