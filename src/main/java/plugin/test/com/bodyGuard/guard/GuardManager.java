@@ -69,9 +69,20 @@ public final class GuardManager {
 
     /** Saves only when persistent guard data changed since the previous successful save. */
     public void save() {
+        playerDataStorage.retrySave();
         if (dirty && storage.save(new ArrayList<>(guards.values()))) {
             dirty = false;
         }
+    }
+
+    public boolean persistNow() {
+        boolean saved = storage.save(new ArrayList<>(guards.values()));
+        if (saved) dirty = false;
+        return saved;
+    }
+
+    public boolean isStorageHealthy() {
+        return storage.isHealthy() && playerDataStorage.isHealthy();
     }
 
     /** Persists the current registry even when no change was recorded, for plugin shutdown. */
@@ -119,7 +130,7 @@ public final class GuardManager {
             // A deletion-pending entry is only an internal tombstone used to remove
             // an entity if its chunk is loaded later. It is no longer a usable guard
             // and must not occupy the player's list or guard limit.
-            if (ownerId.equals(data.getOwnerId()) && !data.isDeletionPending()) {
+            if (ownerId.equals(data.getOwnerId()) && !data.isDeletionPending() && !data.isReleasePending()) {
                 result.add(data);
             }
         }
@@ -234,6 +245,9 @@ public final class GuardManager {
         GuardData data = guards.get(entity.getUniqueId());
         PersistentDataContainer pdc = entity.getPersistentDataContainer();
         if (data != null) {
+            if ((data.isDeletionPending() || data.isReleasePending()) && !isMarked(pdc)) {
+                return null;
+            }
             if (!isMarked(pdc)) {
                 guards.remove(entity.getUniqueId());
                 clearCompanion(data);
@@ -324,52 +338,37 @@ public final class GuardManager {
      * It intentionally does not load chunks, and never includes guards added later.
      */
     public ReleaseResult releaseGuards(UUID ownerId, Collection<UUID> guardIds) {
-        if (ownerId == null || guardIds == null || guardIds.isEmpty()) {
-            return new ReleaseResult(0, 0, 0);
-        }
-        int released = 0;
-        int queued = 0;
-        int failed = 0;
-        for (UUID guardId : new ArrayList<>(guardIds)) {
-            GuardData data = getGuardData(guardId);
-            if (data == null || !ownerId.equals(data.getOwnerId())) {
+        if (ownerId == null || guardIds == null) return new ReleaseResult(0, 0, 0);
+        int released = 0, queued = 0, failed = 0;
+        for (UUID id : new LinkedHashSet<>(guardIds)) {
+            GuardData data = guards.get(id);
+            if (data == null || !ownerId.equals(data.getOwnerId()) || data.isDeletionPending()) {
                 failed++;
                 continue;
             }
-            if (data.isDeletionPending()) {
+            boolean previous = data.isReleasePending();
+            data.setReleasePending(true);
+            dirty = true;
+            if (!persistNow()) {
+                data.setReleasePending(previous);
                 failed++;
                 continue;
             }
-            if (data.isReleasePending()) {
-                Entity pendingEntity = findLoadedEntity(data);
-                if (pendingEntity instanceof Mob pendingMob && EntityUtil.isAlive(pendingMob)) {
-                    finalizePendingRelease(data, pendingMob);
+            try {
+                clearCompanion(data);
+                Entity entity = findLoadedEntity(data);
+                if (entity instanceof Mob mob) {
+                    finalizePendingRelease(data, mob);
                     released++;
-                } else {
-                    queued++;
-                }
-                continue;
-            }
-            Mob mob = getLoadedMob(data);
-            if (mob == null || !owns(ownerId, mob)) {
-                if (!data.isReleasePending()) {
-                    data.setReleasePending(true);
-                    dirty = true;
-                }
+                } else queued++;
+            } catch (RuntimeException failure) {
+                plugin.getLogger().log(java.util.logging.Level.WARNING,
+                        "護衛の解除は保存済みです。再読み込み時に再試行します: " + id, failure);
                 queued++;
-                continue;
             }
-            plugin.playGuardEffect(mob, false);
-            if (releaseGuard(data, mob, false)) {
-                released++;
-            }
-        }
-        if (released > 0 || queued > 0) {
-            save();
         }
         return new ReleaseResult(released, queued, failed);
     }
-
     public UUID getOwner(Entity entity) {
         GuardData data = getGuardData(entity);
         return data == null ? null : data.getOwnerId();
@@ -397,7 +396,7 @@ public final class GuardManager {
     }
 
     public Mob getLoadedMob(GuardData data) {
-        if (data == null) {
+        if (data == null || data.isDeletionPending() || data.isReleasePending()) {
             return null;
         }
         Entity entity = findLoadedEntity(data);
@@ -637,25 +636,10 @@ public final class GuardManager {
     }
 
     private boolean releaseGuard(GuardData data, Mob mob, boolean saveImmediately) {
-        if (data == null) {
-            return false;
-        }
-        data.clearCombat();
-        if (mob != null) {
-            restoreOriginalSettings(mob);
-            clearPdc(mob);
-        }
-        boolean removed = guards.remove(data.getGuardId()) != null;
-        if (removed) {
-            clearCompanion(data);
-            dirty = true;
-            if (saveImmediately) {
-                save();
-            }
-        }
-        return removed;
+        if (data == null) return false;
+        ReleaseResult result = releaseGuards(data.getOwnerId(), List.of(data.getGuardId()));
+        return result.released() > 0;
     }
-
     public ReleaseResult releaseAll(UUID ownerId) {
         List<UUID> guardIds = getGuards(ownerId).stream().map(GuardData::getGuardId).toList();
         return releaseGuards(ownerId, guardIds);
@@ -681,43 +665,43 @@ public final class GuardManager {
         int deleted = 0;
         int queued = 0;
         int failed = 0;
-        for (UUID guardId : new ArrayList<>(guardIds)) {
+        for (UUID guardId : new LinkedHashSet<>(guardIds)) {
             GuardData data = getGuardData(guardId);
             if (data == null || (expectedOwner != null && !expectedOwner.equals(data.getOwnerId()))) {
                 failed++;
                 continue;
             }
-            Entity entity = findLoadedEntity(data);
-            if (entity instanceof Mob mob && EntityUtil.isAlive(mob)) {
-                plugin.playGuardEffect(mob, false);
-                mob.remove();
-                removeDeletedGuardRecord(data);
-                deleted++;
-                continue;
-            }
-            if ((entity != null && entity.isDead())
-                    || (entity == null && isLastKnownChunkLoaded(data))) {
-                // If the last known chunk is loaded and the UUID is absent from
-                // both Bukkit's index and the nearby loaded chunks, there is no
-                // unloaded entity left to wait for. Remove the stale registry
-                // entry immediately instead of creating a permanent tombstone.
-                removeDeletedGuardRecord(data);
-                deleted++;
-                continue;
-            }
+            boolean oldRelease = data.isReleasePending();
+            boolean oldDeletion = data.isDeletionPending();
             data.setReleasePending(false);
             data.setDeletionPending(true);
-            data.clearCombat();
-            clearCompanion(data);
             dirty = true;
-            queued++;
-        }
-        if (deleted > 0 || queued > 0) {
-            save();
+            // Commit the tombstone before touching the entity. Never infer absence
+            // from a loaded chunk: its entity-loading phase may not have finished.
+            if (!persistNow()) {
+                data.setReleasePending(oldRelease);
+                data.setDeletionPending(oldDeletion);
+                failed++;
+                continue;
+            }
+            try {
+                data.clearCombat();
+                clearCompanion(data);
+                Entity entity = findLoadedEntity(data);
+                if (entity instanceof Mob mob) {
+                    finalizePendingDeletion(data, mob);
+                    deleted++;
+                } else {
+                    queued++;
+                }
+            } catch (RuntimeException failure) {
+                plugin.getLogger().log(java.util.logging.Level.WARNING,
+                        "護衛の削除は保存済みです。再読み込み時に再試行します: " + guardId, failure);
+                queued++;
+            }
         }
         return new DeleteResult(deleted, queued, failed);
     }
-
     private boolean isLastKnownChunkLoaded(GuardData data) {
         Location last = data == null ? null : data.getLastLocation();
         World world = last == null ? null : last.getWorld();
@@ -770,31 +754,13 @@ public final class GuardManager {
     public void cleanup() {
         for (GuardData data : new ArrayList<>(guards.values())) {
             Entity entity = findLoadedEntity(data);
-            if (entity == null) {
-                if (data.isDeletionPending() && isLastKnownChunkLoaded(data)) {
-                    removeDeletedGuardRecord(data);
-                    continue;
-                }
-                // A failed UUID lookup does not prove death. Keep the record so a
-                // temporarily unavailable or later reloaded guard can recover.
-                continue;
-            }
-            if (data.isDeletionPending() && entity.isDead()) {
-                removeDeletedGuardRecord(data);
-                continue;
-            }
-            // A cross-world teleport can briefly expose the old entity wrapper as
-            // invalid. The UUID lookup will become null or resolve to the new wrapper
-            // on a later cleanup pass, so that transient state is not proof of loss.
-            if (entity.isDead() || !entity.isValid()) {
-                continue;
-            }
-            if (entity instanceof Mob) {
-                data.setLastLocation(entity.getLocation());
+            if (entity instanceof Mob mob && entity.isValid() && !entity.isDead()) {
+                if (data.isDeletionPending()) finalizePendingDeletion(data, mob);
+                else if (data.isReleasePending()) finalizePendingRelease(data, mob);
+                else data.setLastLocation(entity.getLocation());
             }
         }
     }
-
     public void handleChunkLoad(Chunk chunk) {
         if (chunk == null) {
             return;
@@ -1117,11 +1083,13 @@ public final class GuardManager {
         if (data == null || mob == null) {
             return;
         }
+        if (data.isOperationCompleted() && !isMarked(mob.getPersistentDataContainer())) return;
         plugin.playGuardFeedback(mob, GuardFeedback.RELEASE);
         data.clearCombat();
         restoreOriginalSettings(mob);
         clearPdc(mob);
-        guards.remove(data.getGuardId());
+        data.setOperationCompleted(true);
+        // Retain the persistent operation record after processing the entity.
         clearCompanion(data);
         dirty = true;
     }
@@ -1132,7 +1100,8 @@ public final class GuardManager {
         }
         data.clearCombat();
         mob.remove();
-        guards.remove(data.getGuardId());
+        data.setOperationCompleted(true);
+        // Retain the persistent operation record after processing the entity.
         clearCompanion(data);
         dirty = true;
     }

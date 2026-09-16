@@ -26,6 +26,10 @@ public final class GuardData {
     private boolean releasePending;
     private boolean deletionPending;
     private boolean favorite;
+    private boolean operationCompleted;
+
+    public boolean isOperationCompleted() { return operationCompleted; }
+    public void setOperationCompleted(boolean value) { operationCompleted = value; }
 
     public GuardData(UUID guardId, UUID ownerId, EntityType mobType, GuardMode mode,
                      String name, String ownerName, Location anchorLocation, Location lastLocation) {

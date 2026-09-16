@@ -78,9 +78,16 @@ public final class BodyGuard extends JavaPlugin {
         reloadSettings();
 
         storage = new GuardStorage(this);
-        playerDataStorage = new PlayerDataStorage(this);
-        guardManager = new GuardManager(this, storage, keys, playerDataStorage);
-        guardManager.load(storage.load());
+        try {
+            java.util.Map<java.util.UUID, GuardData> saved = storage.load();
+            playerDataStorage = new PlayerDataStorage(this);
+            guardManager = new GuardManager(this, storage, keys, playerDataStorage);
+            guardManager.load(saved);
+        } catch (RuntimeException failure) {
+            getLogger().log(Level.SEVERE, "保存データを安全に読み込めないため BodyGuard を停止します。", failure);
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
 
         PluginCommand command = getCommand("bodyguard");
         if (command == null) {
@@ -130,6 +137,7 @@ public final class BodyGuard extends JavaPlugin {
             guardManager.releaseManagedChunks();
             guardManager.forceSave();
         }
+        if (playerDataStorage != null) playerDataStorage.retrySave();
         HandlerList.unregisterAll(this);
     }
 

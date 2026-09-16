@@ -28,27 +28,17 @@ public final class GuardStorage {
 
     private final JavaPlugin plugin;
     private final File file;
+    private final SafeYamlFile safeFile;
 
     public GuardStorage(JavaPlugin plugin) {
         this.plugin = plugin;
         this.file = new File(plugin.getDataFolder(), "guards.yml");
+        this.safeFile = new SafeYamlFile(plugin, "guards.yml");
     }
 
     public Map<UUID, GuardData> load() {
         Map<UUID, GuardData> result = new LinkedHashMap<>();
-        if (!file.exists()) {
-            return result;
-        }
-
-        YamlConfiguration configuration = new YamlConfiguration();
-        try {
-            configuration.load(file);
-        } catch (IOException | InvalidConfigurationException exception) {
-            plugin.getLogger().log(Level.SEVERE,
-                    "Could not load guards.yml. Starting with an empty registry; entity PDC data remains intact.",
-                    exception);
-            return result;
-        }
+        YamlConfiguration configuration = safeFile.load();
 
         ConfigurationSection guards = configuration.getConfigurationSection("guards");
         if (guards == null) {
@@ -88,6 +78,7 @@ public final class GuardStorage {
                 data.setReleasePending(guards.getBoolean(idText + ".release-pending", false));
                 data.setDeletionPending(guards.getBoolean(idText + ".deletion-pending", false));
                 data.setFavorite(guards.getBoolean(idText + ".favorite", false));
+                data.setOperationCompleted(guards.getBoolean(idText + ".operation-completed", false));
                 result.put(guardId, data);
             } catch (RuntimeException exception) {
                 plugin.getLogger().log(Level.WARNING,
@@ -115,42 +106,16 @@ public final class GuardStorage {
             configuration.set(path + ".release-pending", data.isReleasePending());
             configuration.set(path + ".deletion-pending", data.isDeletionPending());
             configuration.set(path + ".favorite", data.isFavorite());
+            configuration.set(path + ".operation-completed", data.isOperationCompleted());
             writeLocation(configuration, path + ".anchor-location", data.getAnchorLocation());
             writeLocation(configuration, path + ".last-location", data.getLastLocation());
         }
 
-        File parent = file.getParentFile();
-        if (parent != null && !parent.exists() && !parent.mkdirs()) {
-            plugin.getLogger().warning("Could not create plugin data folder for guards.yml.");
-        }
-        File temporary = null;
-        try {
-            temporary = File.createTempFile("guards-", ".tmp", parent);
-            configuration.save(temporary);
-
-            if (file.exists()) {
-                Files.copy(file.toPath(), backupFile().toPath(), StandardCopyOption.REPLACE_EXISTING);
-            }
-            try {
-                Files.move(temporary.toPath(), file.toPath(),
-                        StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-            } catch (AtomicMoveNotSupportedException exception) {
-                Files.move(temporary.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING);
-            }
-            return true;
-        } catch (IOException exception) {
-            plugin.getLogger().log(Level.SEVERE, "Could not save guards.yml", exception);
-            return false;
-        } finally {
-            if (temporary != null && temporary.exists() && !temporary.delete()) {
-                temporary.deleteOnExit();
-            }
-        }
+        return safeFile.save(configuration);
     }
 
-    private File backupFile() {
-        return new File(file.getParentFile(), file.getName() + ".bak");
-    }
+    public boolean isHealthy() { return safeFile.isHealthy(); }
+    public long getLastSaved() { return safeFile.getLastSaved(); }
 
     private Location readLocation(ConfigurationSection root, String path) {
         String worldName = root.getString(path + ".world");

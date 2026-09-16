@@ -25,6 +25,8 @@ public final class PlayerDataStorage {
 
     private final JavaPlugin plugin;
     private final File file;
+    private final SafeYamlFile safeFile;
+    private boolean dirty;
     private final Map<UUID, State> states = new HashMap<>();
     private final Map<UUID, UUID> companions = new HashMap<>();
     private final Map<UUID, Set<UUID>> friends = new HashMap<>();
@@ -32,6 +34,7 @@ public final class PlayerDataStorage {
     public PlayerDataStorage(JavaPlugin plugin) {
         this.plugin = plugin;
         this.file = new File(plugin.getDataFolder(), "players.yml");
+        this.safeFile = new SafeYamlFile(plugin, "players.yml");
         load();
     }
 
@@ -98,7 +101,7 @@ public final class PlayerDataStorage {
         states.clear();
         companions.clear();
         friends.clear();
-        YamlConfiguration configuration = YamlConfiguration.loadConfiguration(file);
+        YamlConfiguration configuration = safeFile.load();
         for (String idText : configuration.getConfigurationSection("players") == null
                 ? java.util.Set.<String>of()
                 : configuration.getConfigurationSection("players").getKeys(false)) {
@@ -127,7 +130,12 @@ public final class PlayerDataStorage {
         }
     }
 
+    public boolean isHealthy() { return safeFile.isHealthy(); }
+
+    public void retrySave() { if (dirty) save(); }
+
     private void save() {
+        dirty = true;
         YamlConfiguration configuration = new YamlConfiguration();
         configuration.set("version", 2);
         for (Map.Entry<UUID, State> entry : states.entrySet()) {
@@ -140,30 +148,6 @@ public final class PlayerDataStorage {
             configuration.set("players." + entry.getKey() + ".friends",
                     entry.getValue().stream().map(UUID::toString).sorted().toList());
         }
-        File parent = file.getParentFile();
-        if (parent != null && !parent.exists() && !parent.mkdirs()) {
-            plugin.getLogger().warning("Could not create plugin data folder for players.yml.");
-        }
-        File temporary = null;
-        try {
-            temporary = File.createTempFile("players-", ".tmp", parent);
-            configuration.save(temporary);
-            if (file.exists()) {
-                Files.copy(file.toPath(), new File(parent, "players.yml.bak").toPath(),
-                        StandardCopyOption.REPLACE_EXISTING);
-            }
-            try {
-                Files.move(temporary.toPath(), file.toPath(),
-                        StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-            } catch (AtomicMoveNotSupportedException exception) {
-                Files.move(temporary.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING);
-            }
-        } catch (IOException exception) {
-            plugin.getLogger().log(Level.SEVERE, "Could not save players.yml", exception);
-        } finally {
-            if (temporary != null && temporary.exists() && !temporary.delete()) {
-                temporary.deleteOnExit();
-            }
-        }
+        if (safeFile.save(configuration)) dirty = false;
     }
 }
