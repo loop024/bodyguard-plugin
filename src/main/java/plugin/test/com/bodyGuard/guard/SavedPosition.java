@@ -16,8 +16,10 @@ public record SavedPosition(UUID worldId, String worldName, double x, double y, 
     }
 
     public Location resolve() {
-        // A different world with a reused name must not inherit this position.
-        World world = worldId == null ? Bukkit.getWorld(worldName) : Bukkit.getWorld(worldId);
+        // A different world with a reused name must never inherit this position.
+        // Legacy records without a UUID remain unresolved until an administrator
+        // repairs them; the display still retains worldName and coordinates.
+        World world = worldId == null ? null : Bukkit.getWorld(worldId);
         return world == null ? null : new Location(world, x, y, z, yaw, pitch);
     }
 
@@ -25,7 +27,12 @@ public record SavedPosition(UUID worldId, String worldName, double x, double y, 
         if (!section.isConfigurationSection(path)) return null;
         String name = section.getString(path + ".world", "");
         String idText = section.getString(path + ".world-uuid");
-        UUID id = idText == null ? null : UUID.fromString(idText);
+        UUID id;
+        try {
+            id = idText == null || idText.isBlank() ? null : UUID.fromString(idText);
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalArgumentException("Invalid world UUID: " + path, exception);
+        }
         double x = section.getDouble(path + ".x", Double.NaN);
         double y = section.getDouble(path + ".y", Double.NaN);
         double z = section.getDouble(path + ".z", Double.NaN);
