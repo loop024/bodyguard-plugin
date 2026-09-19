@@ -28,7 +28,7 @@ public final class BodyGuardTabCompleter implements TabCompleter {
         if (args.length == 1) {
             return matching(args[0], List.of(
                     "help", "menu", "command", "item", "summon", "recruit", "release", "releaseall", "deleteall", "list", "tp",
-                    "mode", "rename", "heal", "friend", "reload"
+                    "mode", "rename", "heal", "friend", "status", "reload"
             ));
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("summon")) {
@@ -61,6 +61,10 @@ public final class BodyGuardTabCompleter implements TabCompleter {
         if (args.length == 2 && args[0].equalsIgnoreCase("deleteall")) {
             return matching(args[1], sender.hasPermission("bodyguard.admin")
                     ? List.of("confirm", "server") : List.of("confirm"));
+        }
+        if (args.length == 2 && args[0].equalsIgnoreCase("status")
+                && sender.hasPermission("bodyguard.admin")) {
+            return matching(args[1], List.of("server"));
         }
         if (args.length == 3 && args[0].equalsIgnoreCase("deleteall")
                 && args[1].equalsIgnoreCase("server") && sender.hasPermission("bodyguard.admin")) {

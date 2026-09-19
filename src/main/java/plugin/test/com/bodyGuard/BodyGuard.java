@@ -192,20 +192,23 @@ public final class BodyGuard extends JavaPlugin {
             requireFinite(configuration, "teleport.max-distance", 1.0, 4096.0);
             requireBoolean(configuration, "teleport.different-world");
             requireString(configuration, "menu-opener.material");
-            if (Material.matchMaterial(configuration.getString("menu-opener.material", "")) == null) {
+            String menuMaterial = configuration.getString("menu-opener.material", "NETHER_STAR");
+            if (Material.matchMaterial(menuMaterial) == null) {
                 throw new IllegalArgumentException("menu-opener.materialが不正です");
             }
             requireString(configuration, "display.nameplate.mode");
             NameplateMode.valueOf(configuration.getString("display.nameplate.mode", "NAME_HEALTH_MODE")
                     .trim().toUpperCase(Locale.ROOT));
             requireString(configuration, "effects.gui-sounds.success-sound");
-            Sound.valueOf(configuration.getString("effects.gui-sounds.success-sound", "")
+            Sound.valueOf(configuration.getString("effects.gui-sounds.success-sound", "UI_BUTTON_CLICK")
                     .trim().toUpperCase(Locale.ROOT));
             requireString(configuration, "effects.gui-sounds.failure-sound");
-            Sound.valueOf(configuration.getString("effects.gui-sounds.failure-sound", "")
+            Sound.valueOf(configuration.getString("effects.gui-sounds.failure-sound", "BLOCK_NOTE_BLOCK_BASS")
                     .trim().toUpperCase(Locale.ROOT));
             java.util.List<String> configuredMobs = configuration.getStringList("allowed-mobs");
-            if (configuredMobs.isEmpty()) throw new IllegalArgumentException("allowed-mobsが空です");
+            if (configuredMobs.isEmpty() && configuration.contains("allowed-mobs")) {
+                throw new IllegalArgumentException("allowed-mobsが空です");
+            }
             for (String value : configuredMobs) {
                 EntityType type = parseEntityType(value);
                 if (type == null || !isSupportedMobType(type)) {
@@ -221,11 +224,13 @@ public final class BodyGuard extends JavaPlugin {
 
     private void requireBoolean(YamlConfiguration configuration, String path) {
         Object value = configuration.get(path);
+        if (value == null) return;
         if (!(value instanceof Boolean)) throw new IllegalArgumentException(path + " はbooleanではありません");
     }
 
     private void requireInteger(YamlConfiguration configuration, String path, int minimum, int maximum) {
         Object value = configuration.get(path);
+        if (value == null) return;
         if (!(value instanceof Number number) || number.doubleValue() != number.intValue()
                 || number.intValue() < minimum || number.intValue() > maximum) {
             throw new IllegalArgumentException(path + " の範囲または型が不正です");
@@ -235,6 +240,7 @@ public final class BodyGuard extends JavaPlugin {
     private void requireFinite(YamlConfiguration configuration, String path,
                                double minimum, double maximum) {
         Object value = configuration.get(path);
+        if (value == null) return;
         if (!(value instanceof Number number) || !Double.isFinite(number.doubleValue())
                 || number.doubleValue() < minimum || number.doubleValue() > maximum) {
             throw new IllegalArgumentException(path + " の範囲または型が不正です");
@@ -243,6 +249,7 @@ public final class BodyGuard extends JavaPlugin {
 
     private void requireString(YamlConfiguration configuration, String path) {
         Object value = configuration.get(path);
+        if (value == null) return;
         if (!(value instanceof String string) || string.isBlank()) {
             throw new IllegalArgumentException(path + " は文字列ではありません");
         }

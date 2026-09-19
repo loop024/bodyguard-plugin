@@ -495,6 +495,53 @@ public final class BodyGuardCommand implements CommandExecutor {
         return true;
     }
 
+    private boolean status(CommandSender sender, String[] args) {
+        if (args.length > 2 || (args.length == 2 && !args[1].equalsIgnoreCase("server"))) {
+            usage(sender, "/bg status [server]");
+            return true;
+        }
+        boolean server = args.length == 2;
+        if (server && !sender.hasPermission("bodyguard.admin")) {
+            messages.send(sender, "no-permission");
+            return true;
+        }
+        java.util.UUID ownerId = server || !(sender instanceof Player player)
+                ? null : player.getUniqueId();
+        GuardManager.DiagnosticSnapshot snapshot = manager.diagnostics(ownerId);
+        messages.send(sender, "status-header", "&b[BodyGuard] 診断");
+        messages.send(sender, "status-contracts",
+                "&7契約中: &f{active} &7/ 利用可能: &a{available} &7/ 未読み込み: &8{unloaded} &7/ ワールド不在: &e{world} &7/ 確認中: &e{checking} &7/ 所在不明: &c{missing}",
+                Map.of("active", String.valueOf(snapshot.active()),
+                        "available", String.valueOf(snapshot.available()),
+                        "unloaded", String.valueOf(snapshot.unloaded()),
+                        "world", String.valueOf(snapshot.worldUnavailable()),
+                        "checking", String.valueOf(snapshot.checking()),
+                        "missing", String.valueOf(snapshot.missing())));
+        messages.send(sender, "status-operations",
+                "&7解除待ち: &f{release} &7/ 削除待ち: &f{delete} &7/ 完了履歴: &f{completed} &7/ 隔離: &c{quarantine}",
+                Map.of("release", String.valueOf(snapshot.releasePending()),
+                        "delete", String.valueOf(snapshot.deletePending()),
+                        "completed", String.valueOf(snapshot.completed()),
+                        "quarantine", String.valueOf(snapshot.quarantined())));
+        messages.send(sender, "status-storage",
+                "&7保存: &f{result} &7/ 最終成功: &f{saved} &7/ 操作台帳: &f{ledger}件",
+                Map.of("result", snapshot.lastSaveResult().name(),
+                        "saved", snapshot.lastSaved() <= 0 ? "記録なし"
+                                : String.valueOf(snapshot.lastSaved()),
+                        "ledger", String.valueOf(snapshot.ledgerEntries())));
+        if (server) {
+            messages.send(sender, "status-chunks",
+                    "&7チャンクチケット: &f{current}/{limit}",
+                    Map.of("current", String.valueOf(snapshot.managedChunks()),
+                            "limit", String.valueOf(snapshot.maxManagedChunks())));
+            if (snapshot.lastFailureReason() != null) {
+                messages.send(sender, "status-failure", "&c最後の保存失敗: &f{reason}",
+                        Map.of("reason", snapshot.lastFailureReason()));
+            }
+        }
+        return true;
+    }
+
     private boolean teleport(CommandSender sender, String[] args) {
         if (!requirePermission(sender, "bodyguard.teleport")) {
             return true;
@@ -634,8 +681,12 @@ public final class BodyGuardCommand implements CommandExecutor {
             messages.send(sender, "no-permission");
             return true;
         }
-        plugin.reloadSettings();
-        messages.send(sender, "config-reloaded");
+        if (plugin.reloadSettings()) {
+            messages.send(sender, "config-reloaded");
+        } else {
+            messages.send(sender, "config-reload-failed",
+                    "&c設定またはメッセージが不正なため、現在の設定を維持しました。");
+        }
         return true;
     }
 

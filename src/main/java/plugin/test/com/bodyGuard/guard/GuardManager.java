@@ -167,10 +167,8 @@ public final class GuardManager {
         }
         World world = Bukkit.getWorld(savedLast.worldId());
         if (world == null) return GuardData.Status.WORLD_UNAVAILABLE;
-        if (!world.isChunkLoaded(savedLast.x() < 0 ? ((int) Math.floor(savedLast.x())) >> 4
-                : ((int) Math.floor(savedLast.x())) >> 4,
-                savedLast.z() < 0 ? ((int) Math.floor(savedLast.z())) >> 4
-                : ((int) Math.floor(savedLast.z())) >> 4)) {
+        if (!world.isChunkLoaded((int) Math.floor(savedLast.x()) >> 4,
+                (int) Math.floor(savedLast.z()) >> 4)) {
             return GuardData.Status.UNLOADED;
         }
         return data.getMissingSince() > 0 && data.getMissingObservations() >= 2
@@ -368,7 +366,12 @@ public final class GuardManager {
                 entity.getLocation(), nameNumber);
         if (savedAnchor != null) data.setSavedPositions(savedAnchor, SavedPosition.of(entity.getLocation()));
         data.observed();
-        if (previous != null) data.setContractGeneration(previous.getContractGeneration());
+        if (previous != null) {
+            data.setContractGeneration(previous.getContractGeneration());
+        } else {
+            Long pdcGeneration = pdc.get(keys.contractGeneration(), PersistentDataType.LONG);
+            if (pdcGeneration != null && pdcGeneration > 0L) data.setContractGeneration(pdcGeneration);
+        }
         Byte pdcFavorite = pdc.get(keys.favorite(), PersistentDataType.BYTE);
         data.setFavorite(previous != null ? previous.isFavorite() : pdcFavorite != null && pdcFavorite != 0);
         guards.put(entityId, data);
@@ -896,19 +899,6 @@ public final class GuardManager {
         }
         return new DeleteResult(deleted, queued, failed);
     }
-    private boolean isLastKnownChunkLoaded(GuardData data) {
-        Location last = data == null ? null : data.getLastLocation();
-        World world = last == null ? null : last.getWorld();
-        return world != null && world.isChunkLoaded(
-                last.getBlockX() >> 4, last.getBlockZ() >> 4);
-    }
-
-    private void removeDeletedGuardRecord(GuardData data) {
-        guards.remove(data.getGuardId());
-        clearCompanion(data);
-        dirty = true;
-    }
-
     public DeleteResult deleteAll(UUID ownerId) {
         List<UUID> guardIds = getGuards(ownerId).stream().map(GuardData::getGuardId).toList();
         return deleteGuards(ownerId, guardIds);
@@ -1352,7 +1342,8 @@ public final class GuardManager {
     }
 
     private boolean acceptOperation(GuardData data, GuardData.OperationType type) {
-        if (data == null || !data.isActiveContract() || operationLedger == null) return false;
+        if (data == null || !data.isActiveContract() || data.isQuarantined()
+                || operationLedger == null) return false;
         UUID operationId = UUID.randomUUID();
         long acceptedAt = System.currentTimeMillis();
         if (!operationLedger.append(operationId, data.getContractGeneration(), data.getGuardId(),

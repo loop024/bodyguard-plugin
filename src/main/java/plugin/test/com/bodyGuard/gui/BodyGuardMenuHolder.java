@@ -84,6 +84,9 @@ public final class BodyGuardMenuHolder implements InventoryHolder {
     private final GuardSort sort;
     private final int totalGuardCount;
     private final int filteredGuardCount;
+    private final UUID sessionId = UUID.randomUUID();
+    private final long createdAt = System.currentTimeMillis();
+    private boolean confirmationConsumed;
     private Inventory inventory;
 
     public BodyGuardMenuHolder(MenuType type, UUID ownerId, int page, UUID guardId,
@@ -173,6 +176,21 @@ public final class BodyGuardMenuHolder implements InventoryHolder {
 
     public int getFilteredGuardCount() {
         return filteredGuardCount;
+    }
+
+    public UUID getSessionId() {
+        return sessionId;
+    }
+
+    public long getCreatedAt() {
+        return createdAt;
+    }
+
+    /** Consumes a destructive confirmation once for this exact inventory session. */
+    public boolean consumeConfirmation() {
+        if (confirmationConsumed) return false;
+        confirmationConsumed = true;
+        return true;
     }
 
     public void setInventory(Inventory inventory) {

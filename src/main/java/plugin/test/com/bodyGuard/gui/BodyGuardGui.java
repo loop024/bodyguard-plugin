@@ -272,7 +272,7 @@ public final class BodyGuardGui implements Listener {
         for (int index = start; index < end; index++) {
             inventory.setItem(CONTENT_START + index - start, guardIcon(player, filtered.get(index)));
         }
-        if (all.isEmpty()) {
+        if (all.isEmpty() && safeFilter == BodyGuardMenuHolder.GuardFilter.ALL) {
             inventory.setItem(20, item(Material.NETHER_STAR,
                     text("gui.first-summon-title", "&b最初の護衛を召喚"),
                     List.of(text("gui.first-summon-lore-1", "&7クリックして召喚候補を開きます。"),
@@ -283,11 +283,17 @@ public final class BodyGuardGui implements Listener {
                             text("gui.recruit-guide-lore-2", "&7成功するとそのMobが護衛になります。"))));
         } else if (filtered.isEmpty()) {
             inventory.setItem(22, item(Material.BARRIER,
-                    text("gui.filter-empty-title", "&e条件に合う護衛がいません"),
-                    List.of(text("gui.filter-empty-lore", "&7「条件を解除」を押すと全員を表示します。"))));
-            inventory.setItem(24, item(Material.ARROW,
-                    text("gui.filter-clear", "&b条件を解除"),
-                    List.of(text("gui.filter-clear-lore", "&7絞り込みを「すべて」に戻します。"))));
+                    safeFilter == BodyGuardMenuHolder.GuardFilter.HISTORY
+                            ? text("gui.history-empty-title", "&e処理待ち・履歴はありません")
+                            : text("gui.filter-empty-title", "&e条件に合う護衛がいません"),
+                    List.of(safeFilter == BodyGuardMenuHolder.GuardFilter.HISTORY
+                            ? text("gui.history-empty-lore", "&7まだ処理待ち・履歴はありません。")
+                            : text("gui.filter-empty-lore", "&7「条件を解除」を押すと全員を表示します。"))));
+            if (safeFilter != BodyGuardMenuHolder.GuardFilter.HISTORY) {
+                inventory.setItem(24, item(Material.ARROW,
+                        text("gui.filter-clear", "&b条件を解除"),
+                        List.of(text("gui.filter-clear-lore", "&7絞り込みを「すべて」に戻します。"))));
+            }
         }
 
         fillBottom(inventory, Material.CYAN_STAINED_GLASS_PANE);
@@ -555,6 +561,9 @@ public final class BodyGuardGui implements Listener {
         if (slot < 0 || slot >= top.getSize()) {
             return;
         }
+        if (!isSupportedClick(event.getClick())) {
+            return;
+        }
         switch (holder.getType()) {
             case COMMAND -> handleCommandClick(player, slot);
             case TUTORIAL -> handleTutorialClick(player, holder, slot);
@@ -565,6 +574,11 @@ public final class BodyGuardGui implements Listener {
             case RELEASE_CONFIRM -> handleConfirmationClick(player, holder, slot);
             case NAME_INPUT -> handleNameInputClick(player, holder, top, slot);
         }
+    }
+
+    private boolean isSupportedClick(ClickType click) {
+        return click == ClickType.LEFT || click == ClickType.RIGHT
+                || click == ClickType.SHIFT_LEFT || click == ClickType.SHIFT_RIGHT;
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
@@ -936,6 +950,11 @@ public final class BodyGuardGui implements Listener {
             int index = slot - CONTENT_START;
             if (index >= 0 && index < holder.getGuardIds().size()) {
                 UUID guardId = holder.getGuardIds().get(index);
+                if (holder.getFilter() == BodyGuardMenuHolder.GuardFilter.HISTORY) {
+                    showResult(player, "gui-history-read-only",
+                            "&e履歴カードは表示専用です。通常の護衛操作はできません。", Map.of(), false);
+                    return;
+                }
                 if (shiftClick && click != null && click.isRightClick()) {
                     quickHeal(player, holder, guardId);
                 } else if (shiftClick && click != null && click.isLeftClick()) {
@@ -1293,6 +1312,11 @@ public final class BodyGuardGui implements Listener {
 
     private void handleConfirmationClick(Player player, BodyGuardMenuHolder holder, int slot) {
         if (slot == 11) {
+            if (!holder.consumeConfirmation()) {
+                showResult(player, "gui-already-processed",
+                        "&eこの確認画面はすでに処理済みです。最新の一覧を開いてください。", Map.of(), false);
+                return;
+            }
             String permission = holder.isDeleteAll() ? "bodyguard.deleteall"
                     : holder.isReleaseAll() ? "bodyguard.releaseall" : "bodyguard.release";
             if (!hasPermission(player, permission)) {
@@ -1562,16 +1586,19 @@ public final class BodyGuardGui implements Listener {
     }
 
     private Map<String, String> guardPointPlaceholders(Player player, GuardData data) {
-        Location anchor = data.getAnchorLocation();
+        plugin.test.com.bodyGuard.guard.SavedPosition anchor = data.getSavedAnchor();
         if (anchor == null) {
-            anchor = player.getLocation();
+            return Map.of("name", plugin.color(data.getName()), "world", "未設定",
+                    "x", "-", "y", "-", "z", "-");
         }
         return Map.of(
                 "name", plugin.color(data.getName()),
-                "world", anchor.getWorld() == null ? "不明" : anchor.getWorld().getName(),
-                "x", String.valueOf(anchor.getBlockX()),
-                "y", String.valueOf(anchor.getBlockY()),
-                "z", String.valueOf(anchor.getBlockZ()));
+                "world", anchor.worldName() == null || anchor.worldName().isBlank()
+                        ? (anchor.worldId() == null ? "不明" : anchor.worldId().toString())
+                        : anchor.worldName(),
+                "x", String.valueOf((int) Math.floor(anchor.x())),
+                "y", String.valueOf((int) Math.floor(anchor.y())),
+                "z", String.valueOf((int) Math.floor(anchor.z())));
     }
 
     private void renderDetail(Inventory inventory, Player player, GuardData data) {
@@ -1822,8 +1849,11 @@ public final class BodyGuardGui implements Listener {
         for (int slot = 0; slot < CONTENT_START; slot++) {
             inventory.setItem(slot, filler.clone());
         }
-        List<GuardData> all = manager.getGuards(player.getUniqueId());
+        List<GuardData> all = filter == BodyGuardMenuHolder.GuardFilter.HISTORY
+                ? manager.getHistory(player.getUniqueId())
+                : manager.getGuards(player.getUniqueId());
         GuardListQuery.Summary summary = listQuery.summary(all);
+        GuardManager.DiagnosticSnapshot diagnostics = manager.diagnostics(player.getUniqueId());
         int limit = plugin.getMaxGuardsPerPlayer();
         boolean unlimited = player.isOp();
         List<String> overviewLore = new ArrayList<>();
@@ -1831,18 +1861,28 @@ public final class BodyGuardGui implements Listener {
                 Map.of("count", String.valueOf(summary.injured()))));
         overviewLore.add(text("gui.overview-unknown", "&7状態を確認できない護衛: &f{count}体",
                 Map.of("count", String.valueOf(summary.unknown()))));
+        overviewLore.add("§7契約中: §f" + diagnostics.active()
+                + " §7/ 利用可能: §a" + diagnostics.available()
+                + " §7/ 未読み込み: §8" + diagnostics.unloaded()
+                + " §7/ ワールド不在: §e" + diagnostics.worldUnavailable()
+                + " §7/ 確認中: §e" + diagnostics.checking()
+                + " §7/ 所在不明: §c" + diagnostics.missing());
         if (unlimited) {
             overviewLore.add(text("gui.remaining-unlimited", "&dOPのため無制限に召喚できます。"));
         } else {
             overviewLore.add(text("gui.remaining", "&7あと &f{remaining}体 &7召喚できます。",
-                    Map.of("remaining", String.valueOf(Math.max(0, limit - summary.total())))));
+                    Map.of("remaining", String.valueOf(Math.max(0, limit - diagnostics.active())))));
         }
         overviewLore.add(text("gui.overview-filter", "&7表示対象: &f{shown}体／全{total}体",
                 Map.of("shown", String.valueOf(filteredCount), "total", String.valueOf(summary.total()))));
         overviewLore.add(snapshotNote());
-        inventory.setItem(4, item(!unlimited && summary.total() >= limit ? Material.ORANGE_DYE : Material.CHEST,
+        int displayedCount = filter == BodyGuardMenuHolder.GuardFilter.HISTORY
+                ? all.size() : diagnostics.active();
+        inventory.setItem(4, item(!unlimited && diagnostics.active() >= limit ? Material.ORANGE_DYE : Material.CHEST,
                 text("gui.overview-title", "&b&lあなたの護衛 &f{count}/{limit}体",
-                        Map.of("count", String.valueOf(summary.total()), "limit", summonLimitLabel(player))),
+                        Map.of("count", String.valueOf(displayedCount),
+                                "limit", filter == BodyGuardMenuHolder.GuardFilter.HISTORY
+                                        ? "履歴" : summonLimitLabel(player))),
                 overviewLore));
         inventory.setItem(0, item(Material.BOOK, text("gui.guide-title", "&b&l操作ガイド"),
                 List.of(summon ? text("gui.summon-guide-lore", "&7Mobをクリックすると召喚します。")
