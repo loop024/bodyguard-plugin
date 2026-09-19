@@ -76,6 +76,7 @@ public final class BodyGuardCommand implements CommandExecutor {
             case "releaseall" -> releaseAll(sender, args);
             case "deleteall" -> deleteAll(sender, args);
             case "list" -> list(sender, args);
+            case "status" -> status(sender, args);
             case "tp" -> teleport(sender, args);
             case "mode" -> mode(sender, args);
             case "rename" -> rename(sender, args);
@@ -95,6 +96,7 @@ public final class BodyGuardCommand implements CommandExecutor {
         messages.send(sender, "help-command", "&f/bg command &7- 簡易司令メニューを開く");
         messages.send(sender, "help-item", "&f/bg item &7- 右クリックでメニューを開く専用アイテムを受け取る");
         messages.send(sender, "help-friend", "&f/bg friend <add|remove|list> [プレイヤー] &7- 護衛が攻撃しない仲間を管理");
+        messages.send(sender, "help-status", "&f/bg status [server] &7- 保存・所在・処理待ちの診断を表示");
     }
 
     private boolean friend(CommandSender sender, String[] args) {
@@ -227,6 +229,11 @@ public final class BodyGuardCommand implements CommandExecutor {
             }
             return false;
         }
+        if (!manager.isStorageHealthy()) {
+            if (notify) messages.send(player, "storage-unavailable",
+                    "&c保存状態を確認できないため、護衛を増やす操作を停止しています。管理者に確認してください。");
+            return false;
+        }
         if (!player.isOp()
                 && manager.countGuards(player.getUniqueId()) >= plugin.getMaxGuardsPerPlayer()) {
             if (notify) {
@@ -311,6 +318,11 @@ public final class BodyGuardCommand implements CommandExecutor {
             messages.send(sender, "mob-not-allowed");
             return true;
         }
+        if (!manager.isStorageHealthy()) {
+            messages.send(player, "storage-unavailable",
+                    "&c保存状態を確認できないため、護衛を増やす操作を停止しています。管理者に確認してください。");
+            return true;
+        }
         if (manager.countGuards(player.getUniqueId()) >= plugin.getMaxGuardsPerPlayer()) {
             messages.send(sender, "guard-limit", Map.of("limit", String.valueOf(plugin.getMaxGuardsPerPlayer())));
             return true;
@@ -352,7 +364,7 @@ public final class BodyGuardCommand implements CommandExecutor {
             messages.send(sender, "not-your-guard");
             return true;
         }
-        if (!(target instanceof Mob mob) || !manager.releaseGuard(data, mob)) {
+        if (!(target instanceof Mob mob) || !manager.releaseGuard(player.getUniqueId(), data.getGuardId())) {
             messages.send(sender, "not-looking-at-mob");
             return true;
         }
@@ -532,7 +544,11 @@ public final class BodyGuardCommand implements CommandExecutor {
             messages.send(sender, "not-looking-at-mob");
             return true;
         }
-        manager.setMode(data, mob, mode, player.getLocation());
+        if (!manager.setMode(data, mob, mode, player.getLocation())) {
+            messages.send(sender, "storage-unavailable",
+                    "&c変更を保存できなかったため、モードは変更していません。再試行してください。");
+            return true;
+        }
         if (mode == GuardMode.GUARD) {
             Location point = data.getAnchorLocation();
             messages.send(sender, "guard-point-set", Map.of(
@@ -582,7 +598,11 @@ public final class BodyGuardCommand implements CommandExecutor {
             return true;
         }
         String coloredName = plugin.color(name);
-        manager.rename(data, mob, coloredName);
+        if (!manager.rename(data, mob, coloredName)) {
+            messages.send(sender, "storage-unavailable",
+                    "&c名前の変更を保存できなかったため、元の名前を維持しました。");
+            return true;
+        }
         messages.send(sender, "renamed", Map.of("name", coloredName));
         return true;
     }

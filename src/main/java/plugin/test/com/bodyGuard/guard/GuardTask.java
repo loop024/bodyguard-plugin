@@ -34,8 +34,10 @@ public final class GuardTask extends BukkitRunnable {
         catch (RuntimeException failure) { manager.reportFailure("chunks", null, failure); }
         for (GuardData data : manager.getAllGuardData()) {
             if (data.isRetired()) continue;
+            if (!manager.shouldRetry("tick", data.getGuardId())) continue;
             try {
                 tickGuard(data);
+                manager.clearFailure("tick", data.getGuardId());
             } catch (RuntimeException failure) {
                 manager.reportFailure("tick", data.getGuardId(), failure);
             }

@@ -163,7 +163,7 @@ public final class GuardManager {
         }
         SavedPosition savedLast = data.getSavedLast();
         if (savedLast == null || savedLast.worldId() == null) {
-            return GuardData.Status.CHECKING;
+            return savedLast == null ? GuardData.Status.CHECKING : GuardData.Status.WORLD_UNAVAILABLE;
         }
         World world = Bukkit.getWorld(savedLast.worldId());
         if (world == null) return GuardData.Status.WORLD_UNAVAILABLE;
@@ -438,17 +438,22 @@ public final class GuardManager {
 
     public boolean toggleFavorite(UUID ownerId, UUID guardId) {
         GuardData data = getGuardData(guardId);
-        if (data == null || ownerId == null || !ownerId.equals(data.getOwnerId())) {
+        if (data == null || ownerId == null || !ownerId.equals(data.getOwnerId())
+                || !data.isActiveContract()) {
             return false;
         }
+        boolean previous = data.isFavorite();
         data.setFavorite(!data.isFavorite());
         Mob mob = getLoadedMob(data);
         if (mob != null) {
             applyPdc(mob, data);
         }
         dirty = true;
-        save();
-        return true;
+        if (persistNow()) return true;
+        data.setFavorite(previous);
+        if (mob != null) applyPdc(mob, data);
+        dirty = true;
+        return false;
     }
 
     public boolean toggleCompanion(UUID ownerId, UUID guardId) {
@@ -457,8 +462,12 @@ public final class GuardManager {
             return false;
         }
         UUID current = playerDataStorage.getCompanion(ownerId);
-        playerDataStorage.setCompanion(ownerId, guardId.equals(current) ? null : guardId);
-        return true;
+        UUID next = guardId.equals(current) ? null : guardId;
+        if (playerDataStorage.setCompanion(ownerId, next)
+                == plugin.test.com.bodyGuard.storage.SafeYamlFile.SaveResult.SUCCESS) {
+            return true;
+        }
+        return false;
     }
 
     /** Changes a selected guard only when it is still owned by the caller and loaded. */
@@ -476,8 +485,7 @@ public final class GuardManager {
         if (mob == null || !owns(ownerId, mob)) {
             return false;
         }
-        setMode(data, mob, mode, guardPoint);
-        return true;
+        return setMode(data, mob, mode, guardPoint);
     }
 
     /** Releases one selected guard only when it is still owned by the caller and loaded. */
@@ -643,14 +651,16 @@ public final class GuardManager {
         return commanded;
     }
 
-    public void setMode(GuardData data, Mob mob, GuardMode mode) {
-        setMode(data, mob, mode, null);
+    public boolean setMode(GuardData data, Mob mob, GuardMode mode) {
+        return setMode(data, mob, mode, null);
     }
 
-    public void setMode(GuardData data, Mob mob, GuardMode mode, Location guardPoint) {
+    public boolean setMode(GuardData data, Mob mob, GuardMode mode, Location guardPoint) {
         if (data == null || mob == null || mode == null) {
-            return;
+            return false;
         }
+        GuardMode previousMode = data.getMode();
+        SavedPosition previousAnchor = data.getSavedAnchor();
         data.setMode(mode);
         data.clearCombat();
         Location anchor = mode == GuardMode.GUARD && guardPoint != null
@@ -661,23 +671,36 @@ public final class GuardManager {
         mob.setAware(true);
         applyPdc(mob, data);
         dirty = true;
-        save();
+        if (!persistNow()) {
+            data.setMode(previousMode);
+            data.setSavedPositions(previousAnchor, data.getSavedLast());
+            applyPdc(mob, data);
+            dirty = true;
+            return false;
+        }
         plugin.playGuardFeedback(mob, switch (mode) {
             case FOLLOW -> GuardFeedback.MODE_FOLLOW;
             case STAY -> GuardFeedback.MODE_STAY;
             case GUARD -> GuardFeedback.MODE_GUARD;
         });
+        return true;
     }
 
-    public void rename(GuardData data, Mob mob, String name) {
+    public boolean rename(GuardData data, Mob mob, String name) {
         if (data == null || mob == null || name == null || name.isBlank()) {
-            return;
+            return false;
         }
+        String previous = data.getName();
         data.setName(name);
         applyPdc(mob, data);
         configureGuard(mob, data);
         dirty = true;
-        save();
+        if (persistNow()) return true;
+        data.setName(previous);
+        applyPdc(mob, data);
+        configureGuard(mob, data);
+        dirty = true;
+        return false;
     }
 
     /** Renames exactly one currently loaded guard after rechecking owner and UUID. */
@@ -691,8 +714,7 @@ public final class GuardManager {
         if (mob == null || !owns(ownerId, mob)) {
             return false;
         }
-        rename(data, mob, name);
-        return true;
+        return rename(data, mob, name);
     }
 
     public int teleportGuards(Player owner) {
@@ -952,10 +974,7 @@ public final class GuardManager {
         for (Entity entity : chunk.getEntities()) {
             boolean wasDirty = dirty;
             trackLoadedEntity(entity);
-            if (guards.size() != 0 && (!wasDirty && dirty)) {
-                dirty = true;
-                changed = true;
-            }
+            if (!wasDirty && dirty) changed = true;
         }
         if (changed) {
             save();
@@ -1399,7 +1418,12 @@ public final class GuardManager {
         if (!isCompanion(data)) {
             return;
         }
-        playerDataStorage.setCompanion(data.getOwnerId(), null);
+        if (playerDataStorage.setCompanion(data.getOwnerId(), null)
+                != SafeYamlFile.SaveResult.SUCCESS) {
+            data.recordOperationFailure("相棒設定の保存に失敗しました");
+            dirty = true;
+            return;
+        }
         Player owner = Bukkit.getPlayer(data.getOwnerId());
         if (owner != null && owner.isOnline()) {
             plugin.getMessages().send(owner, "companion-cleared",
@@ -1419,6 +1443,54 @@ public final class GuardManager {
         public int affected() {
             return deleted + queued;
         }
+    }
+
+    public DiagnosticSnapshot diagnostics(UUID ownerId) {
+        int active = 0;
+        int available = 0;
+        int unloaded = 0;
+        int worldUnavailable = 0;
+        int checking = 0;
+        int missing = 0;
+        int quarantined = 0;
+        int releasePending = 0;
+        int deletePending = 0;
+        int completed = 0;
+        for (GuardData data : guards.values()) {
+            if (ownerId != null && !ownerId.equals(data.getOwnerId())) continue;
+            if (data.isActiveContract()) {
+                active++;
+                switch (status(data)) {
+                    case AVAILABLE -> available++;
+                    case UNLOADED -> unloaded++;
+                    case WORLD_UNAVAILABLE -> worldUnavailable++;
+                    case CHECKING -> checking++;
+                    case MISSING -> missing++;
+                    case QUARANTINED -> quarantined++;
+                    default -> { }
+                }
+            } else {
+                switch (data.getContractStatus()) {
+                    case RELEASE_PENDING -> releasePending++;
+                    case DELETE_PENDING -> deletePending++;
+                    case RELEASED, DELETED, DEAD -> completed++;
+                    case ACTIVE -> { }
+                }
+            }
+        }
+        return new DiagnosticSnapshot(active, available, unloaded, worldUnavailable,
+                checking, missing, quarantined, releasePending, deletePending, completed,
+                managedChunks.size(), plugin.getManagedChunkLimit(),
+                storage.getLastSaveResult(), storage.getLastSaved(),
+                storage.getLastFailureReason(), operationLedger == null ? 0 : operationLedger.size());
+    }
+
+    public record DiagnosticSnapshot(int active, int available, int unloaded,
+                                     int worldUnavailable, int checking, int missing,
+                                     int quarantined, int releasePending, int deletePending,
+                                     int completed, int managedChunks, int maxManagedChunks,
+                                     SafeYamlFile.SaveResult lastSaveResult, long lastSaved,
+                                     String lastFailureReason, int ledgerEntries) {
     }
 
     private SavedPosition readSavedAnchorFromPdc(PersistentDataContainer pdc) {

@@ -39,8 +39,14 @@ public final class PlayerDataStorage {
 
     public SafeYamlFile.SaveResult setState(UUID playerId, State state) {
         if (playerId == null || state == null) return SafeYamlFile.SaveResult.VALIDATION_FAILED;
+        State previous = states.get(playerId);
         states.put(playerId, state);
-        return save();
+        SafeYamlFile.SaveResult result = save();
+        if (result != SafeYamlFile.SaveResult.SUCCESS) {
+            if (previous == null) states.remove(playerId);
+            else states.put(playerId, previous);
+        }
+        return result;
     }
 
     public UUID getCompanion(UUID ownerId) {
@@ -53,9 +59,15 @@ public final class PlayerDataStorage {
 
     public SafeYamlFile.SaveResult setCompanion(UUID ownerId, UUID guardId) {
         if (ownerId == null) return SafeYamlFile.SaveResult.VALIDATION_FAILED;
+        UUID previous = companions.get(ownerId);
         if (guardId == null) companions.remove(ownerId);
         else companions.put(ownerId, guardId);
-        return save();
+        SafeYamlFile.SaveResult result = save();
+        if (result != SafeYamlFile.SaveResult.SUCCESS) {
+            if (previous == null) companions.remove(ownerId);
+            else companions.put(ownerId, previous);
+        }
+        return result;
     }
 
     public boolean isFriend(UUID ownerId, UUID playerId) {
@@ -71,7 +83,10 @@ public final class PlayerDataStorage {
     public boolean addFriend(UUID ownerId, UUID playerId) {
         if (ownerId == null || playerId == null || ownerId.equals(playerId)) return false;
         boolean changed = friends.computeIfAbsent(ownerId, ignored -> new HashSet<>()).add(playerId);
-        if (changed) save();
+        if (changed && save() != SafeYamlFile.SaveResult.SUCCESS) {
+            friends.getOrDefault(ownerId, new HashSet<>()).remove(playerId);
+            if (friends.getOrDefault(ownerId, Set.of()).isEmpty()) friends.remove(ownerId);
+        }
         return changed;
     }
 
@@ -79,7 +94,9 @@ public final class PlayerDataStorage {
         Set<UUID> entries = friends.get(ownerId);
         boolean changed = entries != null && entries.remove(playerId);
         if (entries != null && entries.isEmpty()) friends.remove(ownerId);
-        if (changed) save();
+        if (changed && save() != SafeYamlFile.SaveResult.SUCCESS) {
+            friends.computeIfAbsent(ownerId, ignored -> new HashSet<>()).add(playerId);
+        }
         return changed;
     }
 
