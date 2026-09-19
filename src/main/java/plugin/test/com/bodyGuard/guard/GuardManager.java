@@ -758,10 +758,13 @@ public final class GuardManager {
         boolean sameWorld = loadedMob != null
                 && LocationUtil.sameWorld(loadedMob.getLocation(), selected.getLocation());
         if (!sameWorld) {
-            setProtectionState(data, GuardData.ProtectionState.WORLD_TRANSFER_PENDING,
-                    plugin.shouldTeleportDifferentWorld()
-                            ? "対象ワールドへの移動を待機しています"
-                            : "別ワールド移動は設定で無効です");
+            if (!plugin.shouldTeleportDifferentWorld()
+                    || data.getProtectionState() != GuardData.ProtectionState.WAITING) {
+                setProtectionState(data, GuardData.ProtectionState.WORLD_TRANSFER_PENDING,
+                        plugin.shouldTeleportDifferentWorld()
+                                ? "対象ワールドへの移動を待機しています"
+                                : "別ワールド移動は設定で無効です");
+            }
         } else {
             setProtectionState(data, GuardData.ProtectionState.TARGET_SELECTED, null);
         }
@@ -948,8 +951,6 @@ public final class GuardManager {
                             > plugin.getTargetRange() * plugin.getTargetRange()
                         || guard.getLocation().distanceSquared(target.getLocation())
                             > plugin.getTargetRange() * plugin.getTargetRange()
-                        || (defense && data.getMode() == GuardMode.STAY
-                            && !plugin.stayGuardsDefendOwner())
                         || isForbiddenTarget(guard, target)) continue;
                 assignCombatTarget(data, guard, target);
                 commanded++;

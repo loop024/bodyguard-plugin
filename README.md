@@ -67,11 +67,32 @@
 | `/bg friend add <プレイヤー>` | 指定プレイヤーを、自分の護衛の攻撃対象から除外 |
 | `/bg friend remove <プレイヤー>` | 指定プレイヤーを仲間から外す |
 | `/bg friend list` | 攻撃対象から除外中の仲間を表示 |
+| `/bg protect <owner\|役職ID\|status>` | 見ている自分の護衛の保護対象を設定・確認 |
 | `/bg reload` | 設定を再読み込み（管理者） |
 
 `recruit`、`release`、`mode`、`rename` は、既存コマンドの仕様どおり、5～10ブロック程度の範囲で対象Mobを見て実行してください。
 
 警備地点は、護衛詳細の盾「警備」をクリックした瞬間にプレイヤーが立っているブロックです。盾には登録済みのワールド名とXYZ座標が表示されます。警備中にもう一度盾をクリックすると、その場へ地点を更新できます。一括の「全員警備」も、クリックしたプレイヤーの足元を全員共通の警備地点にします。護衛は設定された警備半径を越えた時点で追跡を中止して中心へ戻り、`guard-mode.return-distance` 以上離れると戦闘中でも警備地点へテレポートするため、壁で囲う必要はありません。
+
+## 役職保護（権限ノード）
+
+役職はLuckPermsなどのグループ名ではなく、設定した権限ノードを持つプレイヤーです。たとえば `config.yml` の `bodyguard.role.king` を持つプレイヤーをkingとして扱います。権限プラグイン側でノードを付与してから、所有者が護衛を見て `/bg protect king` を実行してください。`/bg protect owner` で従来の所有者保護へ戻り、`/bg protect status` で現在の設定・選択対象・保留理由を確認できます。
+
+```yaml
+role-protection:
+  enabled: true
+  roles:
+    king:
+      permission: bodyguard.role.king
+      priority: 100
+    medic:
+      permission: bodyguard.role.medic
+      priority: 50
+```
+
+同じ役職の候補が複数いる場合は、護衛と同じワールドの生存・オンライン・非観戦プレイヤーを優先し、その中で近い順、最後に選択したUUID、UUID文字列順で1人に決めます。選択中のプレイヤーが適格な間は切り替えません。権限喪失、ログアウト、死亡、観戦モードではそのプレイヤーを保護対象から外し、候補がいない間は護衛をその場で待機させます。
+
+役職保護の追従は選択対象を追い、警備は選択対象の周囲を中心に移動警備します。待機は現在地点を守り、対象の別ワールド移動には同行しません。`teleport.different-world: false` の場合、追従と役職対象周辺の警備は別ワールドへ移動せず、GUIと `protect status` に理由を表示します。GUI詳細画面の「保護対象」からも、所有者と設定済み役職を切り替えられます。
 
 ## 簡易司令メニュー
 
@@ -249,6 +270,7 @@ ArmorStandなどの補助Entityは作らないため、チャンクのアンロ�
 - `bodyguard.releaseall` - 全護衛の解除
 - `bodyguard.deleteall` - 自分の全護衛Mobの完全削除
 - `bodyguard.mode` - モード変更
+- `bodyguard.protect` - 自分の護衛の保護対象変更
 - `bodyguard.rename` - 名前変更
 - `bodyguard.teleport` - 護衛の呼び戻し
 - `bodyguard.heal` - 護衛の回復
@@ -269,6 +291,9 @@ ArmorStandなどの補助Entityは作らないため、チャンクのアンロ�
 | `guard-management.max-loaded-chunks-per-owner` | `16` | オンライン所有者1人あたりのチケット上限 |
 | `guard-management.chunk-loads-per-cycle` | `2` | 1周期に新しく要求するチャンク数 |
 | `guard-management.search-chunks-per-cycle` | `32` | 1周期に探索する既読チャンク数 |
+| `teleport.different-world` | `true` | 追従・役職対象周辺警備の別ワールド移動 |
+| `role-protection.enabled` | `true` | 権限ノードによる役職保護の有効化 |
+| `role-protection.roles` | `king` / `medic` | 役職ID、権限ノード、表示用優先順位の定義 |
 | `menu-opener.material` | `COMPASS` | メニュー専用アイテムの素材 |
 | `display.default-name` | `{mob_name}護衛 {number}` | 新規護衛名のテンプレート |
 | `display.gui-refresh-interval-ticks` | `20` | GUI自動更新間隔。`0`で無効 |
@@ -312,7 +337,7 @@ Zombie、Skeleton、Husk、Stray、Drowned、Bogged、Wither Skeleton、Zombifie
 
 護衛EntityにはPersistentDataContainerでBodyGuard識別情報、所有者UUID、護衛UUID、種類、モード、名前、名前番号、お気に入り状態、契約世代を保存します。`guards.yml` には管理情報、名前番号、待機・警備地点、契約状態、最終確認位置を保存し、`operations.yml` には解除・完全削除・死亡の受理と完了を独立して保存します。壊れた個別レコードは `quarantine.yml` に保全できた場合だけ隔離します。所有者ごとの相棒UUID、仲間、チュートリアル状態は `players.yml` に保存します。位置にはワールド名とワールドUUIDを保存し、解決にはワールドUUIDだけを使います。UUIDがない位置は未解決のまま保持し、同名の別ワールドへは自動接続しません。Entityが未読み込みの間は、表示で取得できないHP・距離を推測しません。
 
-`guards.yml` の保存versionは5、`players.yml` は3、`operations.yml` は1です。未対応の新しいversionは上書きせず起動を停止します。既存の古い設定にない項目は安全な既定値で補完しますが、型が不正な項目は保全して読み飛ばします。
+`guards.yml` の保存versionは6、`players.yml` は3、`operations.yml` は1です。`guards.yml` には役職保護の種類、役職ID、最終選択対象UUID、選択リビジョン、移動状態も保存します。役職保護項目がない既存記録はOWNERとして読み込みます。未対応の新しいversionは上書きせず起動を停止します。既存の古い設定にない項目は安全な既定値で補完しますが、型が不正な項目は保全して読み飛ばします。
 
 `guards.yml`、`players.yml`、`operations.yml` は一時ファイルを検証してから置き換え、直前の正常な内容を `.bak` に残します。破損時は元ファイルを `.damaged-...` として保全してからバックアップ復旧を試み、両方を復旧できない場合は空データで上書きせず起動を停止します。保存失敗は管理者へ通知し、解除・削除などの変更は保留して再試行します。自動保存を0にしても、失敗した保存の再試行は独立して動きます。
 
@@ -381,6 +406,12 @@ build.bat
 19. **ログアウト・再ログイン後の状態を確認する** — GUIを開いたままログアウトし、再ログインします。古い入力画面、結果表示、アクションバーが残らず、再度 `/bg` を開ければ成功です。
 20. **既存コマンドとGUIアイテム持ち出し防止を確認する** — `/bg help`、`/bg list`、`/bg summon zombie`、`/bg mode follow`、`/bg heal`、`/bg releaseall confirm` を実行します。既存コマンドが使え、GUIでShiftクリック、数字キー、ダブルクリック、ドラッグ、オフハンド交換をしてもアイテムを持ち出せなければ成功です。
 21. **新しいキーがない既存設定を確認する** — 検証用コピーの `config.yml` と `messages.yml` から今回の新しいキーを一時的に外して起動します。GUIの日本語、更新間隔の既定値、特徴の汎用説明が表示され、操作できれば成功です。確認後は設定ファイルを戻してください。
+22. **役職権限を付けて対象を選ぶ** — 権限プラグインでテストプレイヤーBに `bodyguard.role.king` を付け、所有者Aが護衛を見て `/bg protect king` を実行します。`/bg protect status` と詳細GUIにking、対象B、状態が表示されれば成功です。
+23. **役職保護の3モードを確認する** — king対象Bを移動させ、追従では同じワールドで追い、待機では元の地点に残り、警備ではBの周囲を中心に警備することを確認します。警備の説明が「保護対象の周囲」になっていれば成功です。
+24. **候補の固定と再選択を確認する** — king権限を持つCをBより近くへ移動しても、Bが適格な間は切り替わらないことを確認します。Bから権限を外す、ログアウトする、死亡する、観戦モードにする操作では、Bを攻撃・追従せず、CがいればCへ切り替わることを確認します。
+25. **役職対象の別ワールド移動を確認する** — 追従と警備でBを別ワールドへ移動させ、護衛が安全地点へ1体だけ移動し、戦闘状態が解除されることを確認します。待機では元の地点に残ることを確認します。
+26. **別ワールド移動を無効にした場合を確認する** — `teleport.different-world: false` にして `/bg reload` を実行し、Bを別ワールドへ移動させます。護衛が勝手に移動せず、GUIと `/bg protect status` に設定で無効である理由が表示されれば成功です。
+27. **役職設定とUUIDの再起動復旧を確認する** — サーバーを停止・再起動し、護衛UUID、king設定、最終選択対象UUID、モードが残ることを確認します。古い役職項目のない護衛はOWNERとして読み込まれることも確認します。
 
 上記は手動確認の手順です。今回の実装では、テスト、Mavenビルド、Minecraft/Spigotサーバー起動、ゲーム内確認を実施していません。
 
