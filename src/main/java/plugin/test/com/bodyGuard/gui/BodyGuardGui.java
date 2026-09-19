@@ -1247,7 +1247,10 @@ public final class BodyGuardGui implements Listener {
                     "&e護衛のEntityが未読み込みのため変更できません。", Map.of(), false);
             case SAVE_FAILED -> showResult(player, "storage-unavailable",
                     "&c保護設定を保存できなかったため、変更していません。", Map.of(), false);
-            case NOT_OWNER, NOT_FOUND -> showUnavailableAndReturn(player, holder);
+            case NOT_OWNER, NOT_FOUND -> {
+                showUnavailableAndReturn(player, holder);
+                return;
+            }
         }
         transition(player, () -> openDetails(player, holder.getGuardId(), holder.getPage(),
                 holder.getFilter(), holder.getSort()));

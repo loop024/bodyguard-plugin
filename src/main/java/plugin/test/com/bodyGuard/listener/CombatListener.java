@@ -81,9 +81,11 @@ public final class CombatListener implements Listener {
                     && (!(livingSource instanceof Player) || plugin.shouldDefendAgainstPlayers())) {
                 manager.commandGuardsToTarget(owner.getUniqueId(), livingSource, true);
             }
-            if (!ownGuardSource) {
-                manager.commandRoleGuardsToTarget(owner.getUniqueId(), livingSource, true);
-            }
+        }
+        if (victim instanceof Player protectedPlayer && livingSource != null
+                && sourceGuard == null
+                && (!(livingSource instanceof Player) || plugin.shouldDefendAgainstPlayers())) {
+            manager.commandRoleGuardsToTarget(protectedPlayer.getUniqueId(), livingSource, true);
         }
 
         if (source instanceof Player owner
@@ -176,9 +178,12 @@ public final class CombatListener implements Listener {
                     && (!(livingSource instanceof Player) || plugin.shouldDefendAgainstPlayers())) {
                 manager.commandGuardsToTarget(owner.getUniqueId(), livingSource, true);
             }
-            if (!ownGuardSource) {
-                manager.commandRoleGuardsToTarget(owner.getUniqueId(), livingSource, true);
-            }
+        }
+        if (event.getEntity() instanceof Player protectedPlayer
+                && source instanceof LivingEntity livingSource
+                && sourceGuard == null
+                && (!(livingSource instanceof Player) || plugin.shouldDefendAgainstPlayers())) {
+            manager.commandRoleGuardsToTarget(protectedPlayer.getUniqueId(), livingSource, true);
         }
     }
 }
