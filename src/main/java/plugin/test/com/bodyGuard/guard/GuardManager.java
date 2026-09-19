@@ -372,7 +372,16 @@ public final class GuardManager {
             return null;
         }
 
-        if (previous != null && !previous.getOwnerId().equals(ownerId)) {
+        if (previous == null) {
+            // A PDC marker without a registry contract is not enough evidence
+            // to resurrect or transfer an old guard after a rollback.
+            String reason = operationLedgerHasGuard(entityId)
+                    ? "完了済み操作台帳のUUIDをPDCから再登録しません: "
+                    : "レジストリにないBodyGuard PDCを再登録しません: ";
+            plugin.getLogger().warning(reason + entityId);
+            return null;
+        }
+        if (!previous.getOwnerId().equals(ownerId)) {
             quarantine(previous, "PDCの所有者UUIDが保存レジストリと一致しません");
             return null;
         }
@@ -381,15 +390,6 @@ public final class GuardManager {
                 || previous.getMobType() != mob.getType()
                 || !previous.getMobType().name().equalsIgnoreCase(pdcMobType)) {
             quarantine(previous, "Mob種類が保存レジストリと一致しません");
-            return null;
-        }
-        if (previous == null) {
-            // A PDC marker without a registry contract is not enough evidence
-            // to resurrect or transfer an old guard after a rollback.
-            String reason = operationLedgerHasGuard(entityId)
-                    ? "完了済み操作台帳のUUIDをPDCから再登録しません: "
-                    : "レジストリにないBodyGuard PDCを再登録しません: ";
-            plugin.getLogger().warning(reason + entityId);
             return null;
         }
         GuardMode mode = GuardMode.fromString(getString(pdc, keys.mode()));
@@ -1747,19 +1747,6 @@ public final class GuardManager {
                                      SafeYamlFile.SaveResult ledgerSaveResult,
                                      String ledgerFailureReason,
                                      int ledgerEntries) {
-    }
-
-    private SavedPosition readSavedAnchorFromPdc(PersistentDataContainer pdc) {
-        String worldName = getString(pdc, keys.anchorWorld());
-        UUID worldId = parseUuid(getString(pdc, keys.anchorWorldUuid()));
-        Double x = pdc.get(keys.anchorX(), PersistentDataType.DOUBLE);
-        Double y = pdc.get(keys.anchorY(), PersistentDataType.DOUBLE);
-        Double z = pdc.get(keys.anchorZ(), PersistentDataType.DOUBLE);
-        if (x == null || y == null || z == null
-                || !Double.isFinite(x) || !Double.isFinite(y) || !Double.isFinite(z)) {
-            return null;
-        }
-        return new SavedPosition(worldId, worldName == null ? "" : worldName, x, y, z, 0.0f, 0.0f);
     }
 
     private int nextNameNumber(UUID ownerId, EntityType type) {
