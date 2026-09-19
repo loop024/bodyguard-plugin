@@ -47,6 +47,12 @@ public final class CombatListener implements Listener {
             return;
         }
 
+        if (victim instanceof Player player && sourceGuard != null
+                && manager.isSelectedProtectionTarget(sourceGuard, player)) {
+            event.setCancelled(true);
+            return;
+        }
+
         if (victimGuard != null && source instanceof Player player
                 && player.getUniqueId().equals(victimGuard.getOwnerId())
                 && !plugin.ownerCanDamageGuards()) {
@@ -75,12 +81,16 @@ public final class CombatListener implements Listener {
                     && (!(livingSource instanceof Player) || plugin.shouldDefendAgainstPlayers())) {
                 manager.commandGuardsToTarget(owner.getUniqueId(), livingSource, true);
             }
+            if (!ownGuardSource) {
+                manager.commandRoleGuardsToTarget(owner.getUniqueId(), livingSource, true);
+            }
         }
 
         if (source instanceof Player owner
                 && plugin.shouldAssistOwnerAttacks()
                 && victim instanceof LivingEntity target) {
             manager.commandGuardsToTarget(owner.getUniqueId(), target, false);
+            manager.commandRoleGuardsToTarget(owner.getUniqueId(), target, false);
         }
     }
 
@@ -101,7 +111,8 @@ public final class CombatListener implements Listener {
                 && sourceGuard.getOwnerId().equals(hitGuard.getOwnerId());
         boolean protectedPlayer = event.getHitEntity() instanceof Player player
                 && (sourceGuard.getOwnerId().equals(player.getUniqueId())
-                    || manager.isFriend(sourceGuard.getOwnerId(), player.getUniqueId()));
+                    || manager.isFriend(sourceGuard.getOwnerId(), player.getUniqueId())
+                    || manager.isSelectedProtectionTarget(sourceGuard, player));
         if (sameOwnerGuard || protectedPlayer) {
             event.setCancelled(true);
         }
@@ -138,6 +149,11 @@ public final class CombatListener implements Listener {
             event.setCancelled(true);
             return;
         }
+        if (event.getEntity() instanceof Player player && sourceGuard != null
+                && manager.isSelectedProtectionTarget(sourceGuard, player)) {
+            event.setCancelled(true);
+            return;
+        }
         if (victimGuard != null && source instanceof Player player
                 && player.getUniqueId().equals(victimGuard.getOwnerId())
                 && !plugin.ownerCanDamageGuards()) {
@@ -159,6 +175,9 @@ public final class CombatListener implements Listener {
             if (!ownGuardSource
                     && (!(livingSource instanceof Player) || plugin.shouldDefendAgainstPlayers())) {
                 manager.commandGuardsToTarget(owner.getUniqueId(), livingSource, true);
+            }
+            if (!ownGuardSource) {
+                manager.commandRoleGuardsToTarget(owner.getUniqueId(), livingSource, true);
             }
         }
     }

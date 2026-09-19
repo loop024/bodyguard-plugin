@@ -93,6 +93,21 @@ public final class GuardTask extends BukkitRunnable {
             }
 
             LivingEntity target = validateCurrentTarget(mob, data);
+            if (data.isRoleProtection()) {
+                Player protectedTarget = manager.refreshProtectionTarget(data, mob);
+                if (protectedTarget == null) {
+                    data.clearCombat();
+                    mob.setTarget(null);
+                    LocationUtil.stopHorizontal(mob);
+                    return;
+                }
+                switch (data.getMode()) {
+                    case FOLLOW -> tickRoleFollow(data, mob, protectedTarget, target);
+                    case STAY -> tickStay(data, mob, target);
+                    case GUARD -> tickRoleGuard(data, mob, protectedTarget, target);
+                }
+                return;
+            }
             switch (data.getMode()) {
                 case FOLLOW -> tickFollow(data, mob, owner, target);
                 case STAY -> tickStay(data, mob, target);
@@ -158,6 +173,41 @@ public final class GuardTask extends BukkitRunnable {
         double startDistance = plugin.getFollowStartDistance();
         if (distanceSquared >= startDistance * startDistance && !activeCombat) {
             LocationUtil.moveToward(mob, ownerLocation, plugin.getFollowMoveSpeed());
+        } else if (!activeCombat) {
+            LocationUtil.stopHorizontal(mob);
+        }
+    }
+
+    private void tickRoleFollow(GuardData data, Mob mob, Player protectedTarget,
+                                LivingEntity combatTarget) {
+        Location targetLocation = protectedTarget.getLocation();
+        if (!LocationUtil.sameWorld(mob.getLocation(), targetLocation)) {
+            manager.setProtectionRuntimeState(data,
+                    GuardData.ProtectionState.WORLD_TRANSFER_PENDING,
+                    plugin.shouldTeleportDifferentWorld()
+                            ? "対象ワールドへの移動を待機しています"
+                            : "別ワールド移動は設定で無効です");
+            data.clearCombat();
+            mob.setTarget(null);
+            LocationUtil.stopHorizontal(mob);
+            if (plugin.shouldTeleportDifferentWorld()) {
+                teleportNearTarget(data, mob, targetLocation);
+            }
+            return;
+        }
+
+        manager.setProtectionRuntimeState(data, GuardData.ProtectionState.ACTIVE, null);
+        double distanceSquared = mob.getLocation().distanceSquared(targetLocation);
+        double teleportDistance = Math.min(
+                plugin.getFollowTeleportDistance(), plugin.getTeleportMaxDistance());
+        boolean activeCombat = combatTarget != null && data.isInCombat();
+        if (distanceSquared >= teleportDistance * teleportDistance && !activeCombat) {
+            teleportNearTarget(data, mob, targetLocation);
+            return;
+        }
+        double startDistance = plugin.getFollowStartDistance();
+        if (distanceSquared >= startDistance * startDistance && !activeCombat) {
+            LocationUtil.moveToward(mob, targetLocation, plugin.getFollowMoveSpeed());
         } else if (!activeCombat) {
             LocationUtil.stopHorizontal(mob);
         }
@@ -247,6 +297,58 @@ public final class GuardTask extends BukkitRunnable {
         LocationUtil.stopHorizontal(mob);
     }
 
+    private void tickRoleGuard(GuardData data, Mob mob, Player protectedTarget,
+                               LivingEntity combatTarget) {
+        Location targetLocation = protectedTarget.getLocation();
+        if (!LocationUtil.sameWorld(mob.getLocation(), targetLocation)) {
+            manager.setProtectionRuntimeState(data,
+                    GuardData.ProtectionState.WORLD_TRANSFER_PENDING,
+                    plugin.shouldTeleportDifferentWorld()
+                            ? "対象ワールドへの移動を待機しています"
+                            : "別ワールド移動は設定で無効です");
+            data.clearCombat();
+            mob.setTarget(null);
+            LocationUtil.stopHorizontal(mob);
+            if (plugin.shouldTeleportDifferentWorld()) {
+                teleportNearTarget(data, mob, targetLocation);
+            }
+            return;
+        }
+
+        manager.updateRolePatrolAnchor(data, mob, targetLocation);
+        manager.setProtectionRuntimeState(data, GuardData.ProtectionState.ACTIVE, null);
+        Location anchor = data.getAnchorLocation();
+        if (anchor == null || !LocationUtil.sameWorld(anchor, mob.getLocation())) {
+            data.clearCombat();
+            mob.setTarget(null);
+            LocationUtil.stopHorizontal(mob);
+            return;
+        }
+
+        mob.setAware(true);
+        double distanceSquared = mob.getLocation().distanceSquared(anchor);
+        double radius = plugin.getGuardRadius();
+        double returnDistance = Math.max(plugin.getGuardReturnDistance(), radius + 2.0);
+        if (distanceSquared >= returnDistance * returnDistance) {
+            teleportToAnchor(data, mob, anchor);
+            return;
+        }
+        if (distanceSquared > radius * radius) {
+            data.clearCombat();
+            mob.setTarget(null);
+            LocationUtil.moveToward(mob, anchor, plugin.getFollowMoveSpeed());
+            return;
+        }
+        if (combatTarget != null && data.isInCombat()) return;
+
+        LivingEntity nearest = findNearestHostile(mob, anchor, radius);
+        if (nearest != null) {
+            manager.assignCombatTarget(data, mob, nearest);
+            return;
+        }
+        LocationUtil.stopHorizontal(mob);
+    }
+
     private LivingEntity findNearestHostile(Mob guard, Location anchor, double radius) {
         List<LivingEntity> candidates = new ArrayList<>();
         for (org.bukkit.entity.Entity nearby : guard.getNearbyEntities(radius, radius, radius)) {
@@ -275,6 +377,27 @@ public final class GuardTask extends BukkitRunnable {
         data.clearCombat();
         mob.setTarget(null);
         data.setLastLocation(destination);
+        manager.markDirty();
+    }
+
+    private void teleportNearTarget(GuardData data, Mob mob, Location targetLocation) {
+        if (targetLocation == null || targetLocation.getWorld() == null) return;
+        Location destination = LocationUtil.findSafeLocation(
+                targetLocation, Math.floorMod(data.getGuardId().hashCode(), 13), mob);
+        if (destination == null || !mob.teleport(destination)) {
+            manager.setProtectionRuntimeState(data, GuardData.ProtectionState.WAITING,
+                    "対象ワールドの安全地点が見つかりません");
+            manager.reportFailure("role-transfer", data.getGuardId(),
+                    new IllegalStateException("役職対象付近の安全地点への移動に失敗しました"));
+            return;
+        }
+        data.clearCombat();
+        mob.setTarget(null);
+        data.setLastLocation(destination);
+        if (data.getMode() == GuardMode.GUARD) {
+            manager.updateRolePatrolAnchor(data, mob, targetLocation);
+        }
+        manager.setProtectionRuntimeState(data, GuardData.ProtectionState.ACTIVE, null);
         manager.markDirty();
     }
 

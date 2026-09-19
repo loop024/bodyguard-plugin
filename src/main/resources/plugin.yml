@@ -38,6 +38,9 @@ permissions:
   bodyguard.mode:
     description: Allows changing BodyGuard modes
     default: true
+  bodyguard.protect:
+    description: Allows changing the protection target of owned BodyGuards
+    default: true
   bodyguard.rename:
     description: Allows renaming a BodyGuard
     default: true

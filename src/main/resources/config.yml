@@ -42,6 +42,18 @@ teleport:
   different-world: true
   max-distance: 30.0
 
+# Role protection uses permission nodes, not group names from another plugin.
+# Give a player bodyguard.role.king, then use /bg protect king on one guard.
+role-protection:
+  enabled: true
+  roles:
+    king:
+      permission: bodyguard.role.king
+      priority: 100
+    medic:
+      permission: bodyguard.role.medic
+      priority: 50
+
 combat:
   defend-against-players: true
   assist-owner-attacks: true

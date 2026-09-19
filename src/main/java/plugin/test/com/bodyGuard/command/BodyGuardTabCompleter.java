@@ -28,7 +28,7 @@ public final class BodyGuardTabCompleter implements TabCompleter {
         if (args.length == 1) {
             return matching(args[0], List.of(
                     "help", "menu", "command", "item", "summon", "recruit", "release", "releaseall", "deleteall", "list", "tp",
-                    "mode", "rename", "heal", "friend", "status", "reload"
+                    "mode", "rename", "heal", "friend", "status", "protect", "reload"
             ));
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("summon")) {
@@ -45,6 +45,14 @@ public final class BodyGuardTabCompleter implements TabCompleter {
                 modes.add(mode.commandName());
             }
             return matching(args[1], modes);
+        }
+        if (args.length == 2 && args[0].equalsIgnoreCase("protect")) {
+            List<String> choices = new ArrayList<>();
+            choices.add("owner");
+            choices.add("status");
+            choices.addAll(plugin.getRoleDefinitions().stream()
+                    .map(plugin.test.com.bodyGuard.guard.RoleDefinition::id).toList());
+            return matching(args[1], choices);
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("friend")) {
             return matching(args[1], List.of("add", "remove", "list"));

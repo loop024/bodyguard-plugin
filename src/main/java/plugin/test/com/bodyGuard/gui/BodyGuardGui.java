@@ -1144,6 +1144,10 @@ public final class BodyGuardGui implements Listener {
     }
 
     private void handleDetailClick(Player player, BodyGuardMenuHolder holder, int slot) {
+        if (slot == 7) {
+            cycleProtection(player, holder);
+            return;
+        }
         if (slot == 10 || slot == 13 || slot == 16) {
             GuardMode mode = slot == 10 ? GuardMode.FOLLOW : slot == 13 ? GuardMode.STAY : GuardMode.GUARD;
             GuardData data = ownedGuard(player, holder.getGuardId());
@@ -1209,6 +1213,44 @@ public final class BodyGuardGui implements Listener {
                 // Information and filler slots intentionally do nothing.
             }
         }
+    }
+
+    private void cycleProtection(Player player, BodyGuardMenuHolder holder) {
+        if (!hasPermission(player, "bodyguard.protect")) {
+            showResult(player, "gui-no-permission", "&c保護対象を変更する権限がありません。", Map.of(), false);
+            return;
+        }
+        GuardData data = ownedGuard(player, holder.getGuardId());
+        if (data == null) {
+            showUnavailableAndReturn(player, holder);
+            return;
+        }
+        List<String> choices = new ArrayList<>();
+        choices.add("owner");
+        choices.addAll(plugin.getRoleDefinitions().stream()
+                .map(plugin.test.com.bodyGuard.guard.RoleDefinition::id).toList());
+        String current = data.isRoleProtection() ? data.getRoleId() : "owner";
+        int currentIndex = choices.indexOf(current);
+        String next = choices.get((currentIndex < 0 ? 0 : currentIndex + 1) % choices.size());
+        GuardManager.ProtectionChangeResult result = manager.setProtection(
+                player.getUniqueId(), data.getGuardId(),
+                next.equals("owner") ? GuardData.ProtectionKind.OWNER : GuardData.ProtectionKind.ROLE,
+                next.equals("owner") ? null : next);
+        switch (result) {
+            case SUCCESS -> showResult(player, "protect-changed",
+                    "&a{name}の保護対象を &f{setting} &aに設定しました。",
+                    Map.of("name", plugin.color(data.getName()),
+                            "setting", next.equals("owner") ? "所有者" : next), true);
+            case ROLE_NOT_CONFIGURED -> showResult(player, "protect-role-not-configured",
+                    "&cその役職IDは現在の設定にありません。", Map.of(), false);
+            case NOT_LOADED -> showResult(player, "protect-unavailable",
+                    "&e護衛のEntityが未読み込みのため変更できません。", Map.of(), false);
+            case SAVE_FAILED -> showResult(player, "storage-unavailable",
+                    "&c保護設定を保存できなかったため、変更していません。", Map.of(), false);
+            case NOT_OWNER, NOT_FOUND -> showUnavailableAndReturn(player, holder);
+        }
+        transition(player, () -> openDetails(player, holder.getGuardId(), holder.getPage(),
+                holder.getFilter(), holder.getSort()));
     }
 
     private void singleHeal(Player player, BodyGuardMenuHolder holder) {
@@ -1558,7 +1600,7 @@ public final class BodyGuardGui implements Listener {
             case GUARD -> Material.SHIELD;
         };
         List<String> lore = new ArrayList<>();
-        lore.add(modeDescription(mode));
+        lore.add(modeDescription(data, mode));
         if (mode == GuardMode.GUARD) {
             lore.add(text("gui.guard-point-how", "&bクリック時に、あなたが立っている場所を警備地点にします。"));
             Location anchor = data == null ? null : data.getAnchorLocation();
@@ -1600,6 +1642,14 @@ public final class BodyGuardGui implements Listener {
             case STAY -> text("gui.mode-stay", "&7その場で待機し、必要時に守ります。");
             case GUARD -> text("gui.mode-guard", "&7あなたが立っている地点を中心に、範囲内だけを警備します。");
         };
+    }
+
+    private String modeDescription(GuardData data, GuardMode mode) {
+        if (data != null && data.isRoleProtection() && mode == GuardMode.GUARD) {
+            return text("gui.mode-guard-role",
+                    "&7保護対象の周囲を中心に、範囲内だけを移動警備します。");
+        }
+        return modeDescription(mode);
     }
 
     private Map<String, String> guardPointPlaceholders(Player player, GuardData data) {
@@ -1654,6 +1704,7 @@ public final class BodyGuardGui implements Listener {
         inventory.setItem(10, modeItem(player, data, mob, GuardMode.FOLLOW));
         inventory.setItem(13, modeItem(player, data, mob, GuardMode.STAY));
         inventory.setItem(16, modeItem(player, data, mob, GuardMode.GUARD));
+        inventory.setItem(7, protectionItem(player, data, mob));
         inventory.setItem(19, actionItem(player, data, mob, "bodyguard.rename", Material.NAME_TAG,
                 "gui.rename-title", "&b名前変更",
                 List.of(text("gui.rename-input-current", "&7クリックすると標準金床の入力画面を開きます。"),
@@ -1694,6 +1745,48 @@ public final class BodyGuardGui implements Listener {
         String name = enabled ? text(key, fallback)
                 : ChatColor.GRAY + ChatColor.stripColor(plugin.color(fallback)) + "（操作不可）";
         return item(enabled ? material : Material.GRAY_DYE, name, fullLore);
+    }
+
+    private ItemStack protectionItem(Player player, GuardData data, Mob mob) {
+        if (data == null) {
+            return item(Material.GRAY_DYE, text("gui.protection-disabled", "&7保護対象（操作不可）"),
+                    List.of(text("gui.unavailable-next", "&7一覧へ戻って手動更新してください。")));
+        }
+        boolean allowed = hasPermission(player, "bodyguard.protect");
+        String setting = data.isRoleProtection() ? data.getRoleId() : "owner（所有者）";
+        List<String> lore = new ArrayList<>();
+        lore.add(text("gui.protection-setting", "&7設定: &f{setting}",
+                Map.of("setting", setting)));
+        String targetName = "未選択";
+        if (data.isRoleProtection() && data.getSelectedTargetUuid() != null) {
+            Player target = Bukkit.getPlayer(data.getSelectedTargetUuid());
+            targetName = target == null ? data.getSelectedTargetUuid().toString()
+                    : target.getName() + "（" + target.getUniqueId() + "）";
+        } else if (!data.isRoleProtection()) {
+            targetName = player.getName() + "（所有者）";
+        }
+        lore.add(text("gui.protection-target", "&7対象: &f{target}",
+                Map.of("target", targetName)));
+        lore.add(text("gui.protection-state", "&7状態: &f{state}",
+                Map.of("state", data.getProtectionState().name())));
+        if (data.getProtectionFailureReason() != null) {
+            lore.add(text("gui.protection-reason", "&e保留理由: &f{reason}",
+                    Map.of("reason", data.getProtectionFailureReason())));
+        }
+        if (data.isRoleProtection() && !plugin.shouldTeleportDifferentWorld()) {
+            lore.add(text("gui.protection-world-disabled", "&e別ワールド移動は設定で無効です。"));
+        }
+        lore.add(" ");
+        if (!allowed) {
+            lore.add(text("gui.permission-required", "&c権限がありません。"));
+        } else if (mob == null) {
+            lore.add(text("gui.unloaded-action", "&e現在この護衛の状態を確認できないため操作できません。"));
+        } else {
+            lore.add(text("gui.protection-cycle", "&bクリックで次の保護対象へ切り替え"));
+        }
+        return item(allowed && mob != null ? Material.TOTEM_OF_UNDYING : Material.GRAY_DYE,
+                text("gui.protection-title", "&d保護対象"), lore,
+                data.isRoleProtection());
     }
 
     private ItemStack favoriteItem(GuardData data) {

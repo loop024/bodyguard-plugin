@@ -78,6 +78,7 @@ public final class BodyGuardCommand implements CommandExecutor {
             case "deleteall" -> deleteAll(sender, args);
             case "list" -> list(sender, args);
             case "status" -> status(sender, args);
+            case "protect" -> protect(sender, args);
             case "tp" -> teleport(sender, args);
             case "mode" -> mode(sender, args);
             case "rename" -> rename(sender, args);
@@ -97,7 +98,84 @@ public final class BodyGuardCommand implements CommandExecutor {
         messages.send(sender, "help-command", "&f/bg command &7- 簡易司令メニューを開く");
         messages.send(sender, "help-item", "&f/bg item &7- 右クリックでメニューを開く専用アイテムを受け取る");
         messages.send(sender, "help-friend", "&f/bg friend <add|remove|list> [プレイヤー] &7- 護衛が攻撃しない仲間を管理");
+        messages.send(sender, "help-protect", "&f/bg protect <owner|役職ID|status> &7- 保護対象を設定・確認");
         messages.send(sender, "help-status", "&f/bg status [server] &7- 保存・所在・処理待ちの診断を表示");
+    }
+
+    private boolean protect(CommandSender sender, String[] args) {
+        if (!requirePermission(sender, "bodyguard.protect")) return true;
+        Player player = requirePlayer(sender);
+        if (player == null) return true;
+        if (args.length == 2 && args[1].equalsIgnoreCase("status")) {
+            LivingEntity lookedAt = findLookedAt(player);
+            GuardData data = lookedAt == null ? null : manager.getGuardData(lookedAt);
+            if (!(lookedAt instanceof Mob) || data == null) {
+                messages.send(sender, "not-looking-at-mob");
+                return true;
+            }
+            if (!player.getUniqueId().equals(data.getOwnerId())) {
+                messages.send(sender, "not-your-guard");
+                return true;
+            }
+            Player target = manager.refreshProtectionTarget(data);
+            String configured = data.isRoleProtection()
+                    ? data.getRoleId() : "owner";
+            String targetName = target == null ? "未選択"
+                    : target.getName() + " (" + target.getUniqueId() + ")";
+            messages.send(sender, "protect-status-header", "&b[BodyGuard] 保護設定");
+            messages.send(sender, "protect-status-setting",
+                    "&7設定: &f{setting} &7/ 状態: &f{state}",
+                    Map.of("setting", configured, "state", data.getProtectionState().name()));
+            messages.send(sender, "protect-status-target", "&7現在の対象: &f{target}",
+                    Map.of("target", targetName));
+            if (data.getProtectionFailureReason() != null) {
+                messages.send(sender, "protect-status-reason", "&e保留理由: &f{reason}",
+                        Map.of("reason", data.getProtectionFailureReason()));
+            }
+            if (data.isRoleProtection() && !plugin.shouldTeleportDifferentWorld()) {
+                messages.send(sender, "protect-different-world-disabled",
+                        "&e別ワールド移動は設定で無効です。");
+            }
+            return true;
+        }
+        if (args.length != 2) {
+            usage(sender, "/bg protect <owner|役職ID|status>");
+            return true;
+        }
+
+        String requested = args[1].toLowerCase(java.util.Locale.ROOT);
+        GuardData.ProtectionKind kind = requested.equals("owner")
+                ? GuardData.ProtectionKind.OWNER : GuardData.ProtectionKind.ROLE;
+        String roleId = kind == GuardData.ProtectionKind.ROLE ? requested : null;
+        LivingEntity lookedAt = findLookedAt(player);
+        GuardData data = lookedAt == null ? null : manager.getGuardData(lookedAt);
+        if (!(lookedAt instanceof Mob) || data == null) {
+            messages.send(sender, "not-looking-at-mob");
+            return true;
+        }
+        if (!player.getUniqueId().equals(data.getOwnerId())) {
+            messages.send(sender, "not-your-guard");
+            return true;
+        }
+
+        GuardManager.ProtectionChangeResult result = manager.setProtection(
+                player.getUniqueId(), data.getGuardId(), kind, roleId);
+        switch (result) {
+            case SUCCESS -> messages.send(sender, "protect-changed",
+                    "&a{name}の保護対象を &f{setting} &aに設定しました。",
+                    Map.of("name", data.getName(), "setting", kind == GuardData.ProtectionKind.OWNER
+                            ? "所有者" : roleId));
+            case ROLE_NOT_CONFIGURED -> messages.send(sender, "protect-role-not-configured",
+                    "&cその役職IDは現在の設定にありません。config.ymlを確認してください。");
+            case NOT_LOADED -> messages.send(sender, "protect-unavailable",
+                    "&e護衛のEntityが未読み込みのため、保護設定を変更できません。");
+            case SAVE_FAILED -> messages.send(sender, "storage-unavailable",
+                    "&c保護設定を保存できなかったため、変更していません。再試行してください。");
+            case NOT_OWNER -> messages.send(sender, "not-your-guard");
+            case NOT_FOUND -> messages.send(sender, "gui-guard-unavailable",
+                    "&cその護衛は解除されたか、現在の状態を確認できません。");
+        }
+        return true;
     }
 
     private boolean friend(CommandSender sender, String[] args) {

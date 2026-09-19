@@ -802,6 +802,8 @@ public final class GuardManager {
         GuardData.ProtectionSnapshot previous = data.snapshotProtection();
         try {
             if (!data.setSelectedTargetUuid(targetId)) return true;
+            data.clearCombat();
+            if (loadedMob != null) loadedMob.setTarget(null);
             if (loadedMob != null) applyPdc(loadedMob, data);
             dirty = true;
             if (persistNow()) return true;
@@ -828,6 +830,25 @@ public final class GuardManager {
                 && Objects.equals(data.getProtectionFailureReason(), reason)) return;
         data.setProtectionState(state, reason);
         dirty = true;
+    }
+
+    public void setProtectionRuntimeState(GuardData data, GuardData.ProtectionState state,
+                                          String reason) {
+        setProtectionState(data, state, reason);
+    }
+
+    /** Updates the moving patrol centre only after a meaningful target movement. */
+    public boolean updateRolePatrolAnchor(GuardData data, Mob mob, Location targetLocation) {
+        if (data == null || !data.isRoleProtection() || targetLocation == null
+                || targetLocation.getWorld() == null) return false;
+        SavedPosition current = data.getSavedAnchor();
+        Location previous = data.getAnchorLocation();
+        if (current != null && previous != null && LocationUtil.sameWorld(previous, targetLocation)
+                && previous.distanceSquared(targetLocation) < 1.0) return false;
+        data.setAnchorLocation(targetLocation);
+        if (mob != null) applyPdc(mob, data);
+        dirty = true;
+        return true;
     }
 
     private void clearProtectionCombat(GuardData data, Mob mob) {
@@ -1050,6 +1071,9 @@ public final class GuardManager {
         int commanded = 0;
         for (GuardData data : getGuards(ownerId)) {
             try {
+                if (data.isRoleProtection()) {
+                    continue;
+                }
                 if (defense && data.getMode() == GuardMode.STAY && !plugin.stayGuardsDefendOwner()) {
                     continue;
                 }
