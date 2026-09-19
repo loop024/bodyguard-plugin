@@ -755,9 +755,15 @@ public final class GuardManager {
             return null;
         }
 
-        boolean sameWorld = loadedMob != null
-                && LocationUtil.sameWorld(loadedMob.getLocation(), selected.getLocation());
-        if (!sameWorld) {
+        if (loadedMob == null) {
+            setProtectionState(data, GuardData.ProtectionState.TARGET_SELECTED,
+                    "護衛Entityの読み込みを待機しています");
+        } else if (LocationUtil.sameWorld(loadedMob.getLocation(), selected.getLocation())) {
+            setProtectionState(data, GuardData.ProtectionState.SAME_WORLD, null);
+        } else if (data.getMode() == GuardMode.STAY) {
+            setProtectionState(data, GuardData.ProtectionState.ACTIVE,
+                    "待機モードのため対象ワールドへ同行しません");
+        } else {
             if (!plugin.shouldTeleportDifferentWorld()
                     || data.getProtectionState() != GuardData.ProtectionState.WAITING) {
                 setProtectionState(data, GuardData.ProtectionState.WORLD_TRANSFER_PENDING,

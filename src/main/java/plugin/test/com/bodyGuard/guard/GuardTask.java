@@ -103,7 +103,11 @@ public final class GuardTask extends BukkitRunnable {
                 }
                 switch (data.getMode()) {
                     case FOLLOW -> tickRoleFollow(data, mob, protectedTarget, target);
-                    case STAY -> tickStay(data, mob, target);
+                    case STAY -> {
+                        manager.setProtectionRuntimeState(data,
+                                GuardData.ProtectionState.ACTIVE, null);
+                        tickStay(data, mob, target);
+                    }
                     case GUARD -> tickRoleGuard(data, mob, protectedTarget, target);
                 }
                 return;

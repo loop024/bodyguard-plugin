@@ -312,7 +312,13 @@ public final class BodyGuard extends JavaPlugin {
 
     private void validateRoleDefinitions(YamlConfiguration configuration) {
         ConfigurationSection roles = configuration.getConfigurationSection("role-protection.roles");
-        if (roles == null) return;
+        if (roles == null) {
+            if (configuration.contains("role-protection.roles")) {
+                throw new IllegalArgumentException(
+                        "role-protection.roles はセクションで指定してください");
+            }
+            return;
+        }
         for (String roleId : roles.getKeys(false)) {
             if (roleId == null || !roleId.matches("[a-z0-9_-]{1,32}")) {
                 throw new IllegalArgumentException(

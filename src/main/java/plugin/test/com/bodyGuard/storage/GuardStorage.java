@@ -168,6 +168,9 @@ public final class GuardStorage {
                 throw new IllegalArgumentException("role-idが不正です");
             }
         } else {
+            if (roleId != null && !roleId.isBlank()) {
+                throw new IllegalArgumentException("OWNER保護にrole-idがあります");
+            }
             roleId = null;
         }
 
