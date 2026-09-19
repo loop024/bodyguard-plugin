@@ -184,6 +184,14 @@ public final class GuardTask extends BukkitRunnable {
     private void tickGuard(GuardData data, Mob mob, LivingEntity target) {
         Location anchor = data.getAnchorLocation();
         if (anchor == null) {
+            if (data.getSavedAnchor() != null) {
+                // Keep an unresolved world/position intact. Replacing it with
+                // the current entity location would silently lose the patrol
+                // point and could attach the guard to the wrong world.
+                mob.setTarget(null);
+                LocationUtil.stopHorizontal(mob);
+                return;
+            }
             anchor = mob.getLocation();
             data.setAnchorLocation(anchor);
             manager.markDirty();

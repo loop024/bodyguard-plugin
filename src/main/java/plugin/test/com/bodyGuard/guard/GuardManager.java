@@ -309,9 +309,9 @@ public final class GuardManager {
         }
 
         UUID markedGuardId = parseUuid(getString(pdc, keys.guardUuid()));
-        if (markedGuardId != null && !entityId.equals(markedGuardId)) {
+        if (markedGuardId == null || !entityId.equals(markedGuardId)) {
             if (previous != null) quarantine(previous, "PDCのguard UUIDがEntity UUIDと一致しません");
-            plugin.getLogger().warning("BodyGuard PDCのUUID不一致を隔離しました: " + entityId);
+            plugin.getLogger().warning("BodyGuard PDCのguard UUIDが不正なため再登録しません: " + entityId);
             return null;
         }
         UUID ownerId = parseUuid(getString(pdc, keys.owner()));
@@ -326,10 +326,13 @@ public final class GuardManager {
             return null;
         }
         String pdcMobType = getString(pdc, keys.mobType());
-        if (previous != null && (pdcMobType == null
-                || !previous.getMobType().name().equalsIgnoreCase(pdcMobType)
-                || previous.getMobType() != mob.getType())) {
+        if (pdcMobType == null || !mob.getType().name().equalsIgnoreCase(pdcMobType)
+                || (previous != null && (previous.getMobType() != mob.getType()
+                    || !previous.getMobType().name().equalsIgnoreCase(pdcMobType)))) {
             quarantine(previous, "Mob種類が保存レジストリと一致しません");
+            if (previous == null) {
+                plugin.getLogger().warning("BodyGuard PDCのMob種類が不正なため再登録しません: " + entityId);
+            }
             return null;
         }
         if (previous == null && operationLedgerHasGuard(entityId)) {
@@ -378,6 +381,12 @@ public final class GuardManager {
         } else {
             Long pdcGeneration = pdc.get(keys.contractGeneration(), PersistentDataType.LONG);
             if (pdcGeneration != null && pdcGeneration > 0L) data.setContractGeneration(pdcGeneration);
+        }
+        Long pdcGeneration = pdc.get(keys.contractGeneration(), PersistentDataType.LONG);
+        if (previous != null && pdcGeneration != null
+                && pdcGeneration.longValue() != previous.getContractGeneration()) {
+            quarantine(previous, "PDCの契約世代が保存レジストリと一致しません");
+            return null;
         }
         Byte pdcFavorite = pdc.get(keys.favorite(), PersistentDataType.BYTE);
         data.setFavorite(previous != null ? previous.isFavorite() : pdcFavorite != null && pdcFavorite != 0);

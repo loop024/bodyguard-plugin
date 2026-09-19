@@ -34,6 +34,7 @@ public final class OperationLedgerStorage {
     private final SafeYamlFile safeFile;
     private final Map<UUID, Entry> entries = new LinkedHashMap<>();
     private long nextSequence = 1L;
+    private boolean uncertain;
 
     public OperationLedgerStorage(JavaPlugin plugin) {
         safeFile = new SafeYamlFile(plugin, "operations.yml", "operations");
@@ -42,6 +43,7 @@ public final class OperationLedgerStorage {
     public void load() {
         entries.clear();
         nextSequence = 1L;
+        uncertain = false;
         YamlConfiguration configuration = safeFile.load();
         int version = configuration.getInt("version", 0);
         if (version > CURRENT_VERSION) {
@@ -83,7 +85,7 @@ public final class OperationLedgerStorage {
 
     public boolean append(UUID operationId, long contractGeneration, UUID guardId, UUID ownerId,
                           GuardData.OperationType type, long acceptedAt) {
-        if (operationId == null || guardId == null || ownerId == null || type == null
+        if (uncertain || operationId == null || guardId == null || ownerId == null || type == null
                 || contractGeneration < 1L || acceptedAt < 1L) {
             return false;
         }
@@ -98,13 +100,19 @@ public final class OperationLedgerStorage {
                 ownerId, type, acceptedAt, 0L, null);
         entry = withChecksum(entry);
         entries.put(operationId, entry);
-        if (save()) return true;
+        SafeYamlFile.SaveResult result = save();
+        if (result == SafeYamlFile.SaveResult.SUCCESS) return true;
+        if (result == SafeYamlFile.SaveResult.UNKNOWN_RESULT) {
+            uncertain = true;
+            return false;
+        }
         entries.remove(operationId);
         nextSequence = Math.max(1L, nextSequence - 1L);
         return false;
     }
 
     public boolean complete(UUID operationId, long completedAt) {
+        if (uncertain) return false;
         Entry existing = entries.get(operationId);
         if (existing == null) return false;
         if (existing.completed()) return true;
@@ -112,7 +120,12 @@ public final class OperationLedgerStorage {
                 existing.contractGeneration(), existing.guardId(), existing.ownerId(),
                 existing.type(), existing.acceptedAt(), Math.max(1L, completedAt), null));
         entries.put(operationId, updated);
-        if (save()) return true;
+        SafeYamlFile.SaveResult result = save();
+        if (result == SafeYamlFile.SaveResult.SUCCESS) return true;
+        if (result == SafeYamlFile.SaveResult.UNKNOWN_RESULT) {
+            uncertain = true;
+            return false;
+        }
         entries.put(operationId, existing);
         return false;
     }
@@ -148,12 +161,12 @@ public final class OperationLedgerStorage {
         return operationId == null ? null : entries.get(operationId);
     }
 
-    public boolean isHealthy() { return safeFile.isHealthy(); }
+    public boolean isHealthy() { return safeFile.isHealthy() && !uncertain; }
     public SafeYamlFile.SaveResult getLastSaveResult() { return safeFile.getLastSaveResult(); }
     public long getLastSaved() { return safeFile.getLastSaved(); }
     public int size() { return entries.size(); }
 
-    private boolean save() {
+    private SafeYamlFile.SaveResult save() {
         YamlConfiguration configuration = new YamlConfiguration();
         configuration.set("version", CURRENT_VERSION);
         configuration.set("record-count", entries.size());
@@ -170,7 +183,7 @@ public final class OperationLedgerStorage {
             configuration.set(path + ".completed-at", entry.completedAt());
             configuration.set(path + ".checksum", entry.recordChecksum());
         }
-        return safeFile.saveWithResult(configuration) == SafeYamlFile.SaveResult.SUCCESS;
+        return safeFile.saveWithResult(configuration);
     }
 
     private Entry withChecksum(Entry entry) {

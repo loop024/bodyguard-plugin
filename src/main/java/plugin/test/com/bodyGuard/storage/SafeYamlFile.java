@@ -208,6 +208,11 @@ public final class SafeYamlFile {
 
     private SaveResult fail(SaveResult result, String reason, Exception failure) {
         healthy = false;
+        if (result == SaveResult.UNKNOWN_RESULT) {
+            // The destination may already contain the new bytes. Do not allow a
+            // later retry to overwrite that uncertain state from stale memory.
+            writable = false;
+        }
         consecutiveFailures++;
         lastFailureReason = reason;
         lastSaveResult = result;

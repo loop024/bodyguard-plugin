@@ -127,6 +127,8 @@ public final class GuardStorage {
                 nonNegativeLong(configuration, "guards." + path + ".operation-accepted-at"),
                 nonNegativeLong(configuration, "guards." + path + ".operation-completed-at"),
                 configuration.getString("guards." + path + ".operation-last-failure"));
+        validateOperationState(data, parsedOperationId, parsedOperationType,
+                data.getOperationAcceptedAt(), data.getOperationCompletedAt());
         data.setContractGeneration(Math.max(1L,
                 nonNegativeLong(configuration, "guards." + path + ".contract-generation")));
         data.setSaveRevision(nonNegativeLong(configuration, "guards." + path + ".save-revision"));
@@ -143,6 +145,51 @@ public final class GuardStorage {
         if (data.getContractStatus() == GuardData.ContractStatus.DELETE_PENDING
                 && (parsedOperationType == null || parsedOperationType != GuardData.OperationType.DELETE)) {
             throw new IllegalArgumentException("削除待ちなのに操作情報がありません");
+        }
+    }
+
+    private void validateOperationState(GuardData data, UUID operationId,
+                                        GuardData.OperationType operationType,
+                                        long acceptedAt, long completedAt) {
+        if ((operationId == null) != (operationType == null)) {
+            throw new IllegalArgumentException("操作IDと操作種類が片方だけ設定されています");
+        }
+        if (operationId == null) {
+            if (acceptedAt != 0L || completedAt != 0L) {
+                throw new IllegalArgumentException("操作情報がないのに時刻があります");
+            }
+            return;
+        }
+        if (acceptedAt < 1L || completedAt < 0L || completedAt > 0L && completedAt < acceptedAt) {
+            throw new IllegalArgumentException("操作時刻が不正です");
+        }
+        switch (data.getContractStatus()) {
+            case ACTIVE -> throw new IllegalArgumentException("操作中なのに契約状態がACTIVEです");
+            case RELEASE_PENDING -> {
+                if (operationType != GuardData.OperationType.RELEASE || completedAt != 0L) {
+                    throw new IllegalArgumentException("解除待ちの操作情報が不正です");
+                }
+            }
+            case DELETE_PENDING -> {
+                if (operationType != GuardData.OperationType.DELETE || completedAt != 0L) {
+                    throw new IllegalArgumentException("削除待ちの操作情報が不正です");
+                }
+            }
+            case RELEASED -> {
+                if (operationType != GuardData.OperationType.RELEASE || completedAt == 0L) {
+                    throw new IllegalArgumentException("解除済みの操作情報が不正です");
+                }
+            }
+            case DELETED -> {
+                if (operationType != GuardData.OperationType.DELETE || completedAt == 0L) {
+                    throw new IllegalArgumentException("削除済みの操作情報が不正です");
+                }
+            }
+            case DEAD -> {
+                if (operationType != GuardData.OperationType.DEATH) {
+                    throw new IllegalArgumentException("死亡済みの操作情報が不正です");
+                }
+            }
         }
     }
 

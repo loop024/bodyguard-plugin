@@ -1334,7 +1334,8 @@ public final class BodyGuardGui implements Listener {
                             "&c完全削除: &f{deleted}体 &7/ &e削除予約: &f{queued}体 &7/ &c失敗: &f{failed}体",
                             Map.of("deleted", String.valueOf(result.deleted()),
                                     "queued", String.valueOf(result.queued()),
-                                    "failed", String.valueOf(result.failed())), true);
+                                    "failed", String.valueOf(result.failed())),
+                            result.queued() == 0 && result.failed() == 0);
                 }
                 transition(player, () -> openList(player, holder.getPage(),
                         holder.getFilter(), holder.getSort()));
@@ -1351,7 +1352,8 @@ public final class BodyGuardGui implements Listener {
                         "&a解除済み: &f{released}体 &7/ &e解除予約: &f{queued}体 &7/ &c失敗: &f{failed}体",
                         Map.of("released", String.valueOf(result.released()),
                                 "queued", String.valueOf(result.queued()),
-                                "failed", String.valueOf(result.failed())), true);
+                                "failed", String.valueOf(result.failed())),
+                        result.queued() == 0 && result.failed() == 0);
             }
             transition(player, () -> openList(player, holder.getPage(),
                     holder.getFilter(), holder.getSort()));
