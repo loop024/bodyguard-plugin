@@ -10,6 +10,7 @@ import java.util.UUID;
 import java.util.logging.Level;
 
 import org.bukkit.configuration.ConfigurationSection;
+import org.bukkit.configuration.InvalidConfigurationException;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -93,7 +94,8 @@ public final class SafeYamlFile {
         }
     }
 
-    private void restoreAtomically(File source, File destination) throws IOException {
+    private void restoreAtomically(File source, File destination)
+            throws IOException, InvalidConfigurationException {
         Path temporary = Files.createTempFile(destination.toPath().getParent(),
                 "bodyguard-recovery-", ".tmp");
         try {
@@ -106,7 +108,8 @@ public final class SafeYamlFile {
         }
     }
 
-    private YamlConfiguration read(File source) throws Exception {
+    private YamlConfiguration read(File source)
+            throws IOException, InvalidConfigurationException {
         if (source == null || !source.exists()) {
             throw new IOException("File does not exist: " + file.getName());
         }
