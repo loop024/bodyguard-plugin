@@ -310,6 +310,7 @@ public final class GuardManager {
         }
         UUID ownerId = parseUuid(getString(pdc, keys.owner()));
         if (ownerId == null) {
+            if (previous != null) quarantine(previous, "PDCの所有者UUIDが不正です");
             plugin.getLogger().warning("Ignoring BodyGuard with invalid owner UUID: " + entity.getUniqueId());
             return null;
         }
@@ -946,6 +947,10 @@ public final class GuardManager {
                 if (data.isDeletionPending()) finalizePendingDeletion(data, mob);
                 else if (data.isReleasePending()) finalizePendingRelease(data, mob);
                 else {
+                    if (!isEntityConsistent(data, mob)) {
+                        quarantine(data, "定期整合処理でEntityと保存データが一致しません");
+                        continue;
+                    }
                     data.setLastLocation(entity.getLocation());
                     data.observed();
                     dirty = true;
@@ -1047,7 +1052,8 @@ public final class GuardManager {
                     return candidate;
                 }
             }
-        }        return null;
+        }
+        return null;
     }
 
     public void handleChunkUnload(Chunk chunk) {
