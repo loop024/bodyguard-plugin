@@ -43,6 +43,7 @@ import plugin.test.com.bodyGuard.command.BodyGuardCommand;
 import plugin.test.com.bodyGuard.guard.GuardData;
 import plugin.test.com.bodyGuard.guard.GuardManager;
 import plugin.test.com.bodyGuard.guard.GuardMode;
+import plugin.test.com.bodyGuard.guard.RoleDefinition;
 import plugin.test.com.bodyGuard.storage.PlayerDataStorage;
 import plugin.test.com.bodyGuard.storage.PlayerDataStorage.State;
 import plugin.test.com.bodyGuard.storage.SafeYamlFile;
@@ -1229,7 +1230,7 @@ public final class BodyGuardGui implements Listener {
         choices.add("owner");
         if (plugin.isRoleProtectionEnabled()) {
             choices.addAll(plugin.getRoleDefinitions().stream()
-                    .map(plugin.test.com.bodyGuard.guard.RoleDefinition::id).toList());
+                    .map(RoleDefinition::id).toList());
         }
         String current = data.isRoleProtection() ? data.getRoleId() : "owner";
         int currentIndex = choices.indexOf(current);

@@ -13,6 +13,7 @@ import org.bukkit.Bukkit;
 
 import plugin.test.com.bodyGuard.BodyGuard;
 import plugin.test.com.bodyGuard.guard.GuardMode;
+import plugin.test.com.bodyGuard.guard.RoleDefinition;
 
 /** Context-aware suggestions for the short beginner-friendly command syntax. */
 public final class BodyGuardTabCompleter implements TabCompleter {
@@ -52,7 +53,7 @@ public final class BodyGuardTabCompleter implements TabCompleter {
             choices.add("status");
             if (plugin.isRoleProtectionEnabled()) {
                 choices.addAll(plugin.getRoleDefinitions().stream()
-                        .map(plugin.test.com.bodyGuard.guard.RoleDefinition::id).toList());
+                        .map(RoleDefinition::id).toList());
             }
             return matchingInOrder(args[1], choices);
         }

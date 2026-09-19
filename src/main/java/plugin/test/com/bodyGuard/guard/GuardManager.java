@@ -771,12 +771,14 @@ public final class GuardManager {
                                 ? "対象ワールドへの移動を待機しています"
                                 : "別ワールド移動は設定で無効です");
             }
+        }
         return selected;
     }
 
     private Player chooseRoleTarget(GuardData data, Mob loadedMob,
                                     RoleDefinition role, UUID rememberedId) {
         List<Player> candidates = Bukkit.getOnlinePlayers().stream()
+                .<Player>map(player -> player)
                 .filter(player -> isEligibleRoleTarget(player, role))
                 .toList();
         if (candidates.isEmpty()) return null;
