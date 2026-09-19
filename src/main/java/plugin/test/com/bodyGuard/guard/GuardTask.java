@@ -49,10 +49,20 @@ public final class GuardTask extends BukkitRunnable {
         long autosaveTicks = plugin.getAutosaveIntervalTicks();
         long executionsPerAutosave = Math.max(1L, autosaveTicks / 10L);
         if (autosaveTicks > 0L && executions % executionsPerAutosave == 0L) {
-            manager.save();
+            try {
+                manager.save();
+            } catch (RuntimeException failure) {
+                manager.reportFailure("autosave", null, failure);
+            }
         }
         // Failed writes need a retry even when periodic autosave is disabled.
-        if (executions % 60L == 0L) manager.retryFailedSaves();
+        if (executions % 60L == 0L) {
+            try {
+                manager.retryFailedSaves();
+            } catch (RuntimeException failure) {
+                manager.reportFailure("save-retry", null, failure);
+            }
+        }
     }
 
     private void tickGuard(GuardData data) {

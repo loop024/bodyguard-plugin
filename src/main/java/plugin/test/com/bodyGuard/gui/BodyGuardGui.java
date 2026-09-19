@@ -797,8 +797,12 @@ public final class BodyGuardGui implements Listener {
         CommandCounts before = commandCounts(player);
         int changed = 0;
         for (GuardData data : manager.getGuards(player.getUniqueId())) {
-            if (manager.setMode(player.getUniqueId(), data.getGuardId(), mode, player.getLocation())) {
-                changed++;
+            try {
+                if (manager.setMode(player.getUniqueId(), data.getGuardId(), mode, player.getLocation())) {
+                    changed++;
+                }
+            } catch (RuntimeException failure) {
+                manager.reportFailure("bulk-mode", data.getGuardId(), failure);
             }
         }
         showCommandResult(player, "gui-command-mode-result",

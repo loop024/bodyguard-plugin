@@ -479,23 +479,25 @@ public final class BodyGuardCommand implements CommandExecutor {
         for (int index = 0; index < guards.size(); index++) {
             GuardData data = guards.get(index);
             Mob loadedMob = manager.getLoadedMob(data);
+            GuardData.Status guardStatus = manager.status(data);
             String health = loadedMob == null ? "" : EntityUtil.healthText(loadedMob);
             String status;
             if (data.isDeletionPending()) {
                 status = messages.get("guard-status-deletion-pending", "削除予約中");
             } else if (data.isReleasePending()) {
                 status = messages.get("guard-status-release-pending", "解除予約中");
-            } else if (loadedMob == null) {
-                status = messages.get("gui.guard-status-unknown", "状態を確認できません");
-            } else if (!LocationUtil.sameWorld(player.getLocation(), loadedMob.getLocation())) {
+            } else if (loadedMob != null && guardStatus == GuardData.Status.AVAILABLE
+                    && !LocationUtil.sameWorld(player.getLocation(), loadedMob.getLocation())) {
                 status = messages.format(messages.get("gui.guard-status-world",
-                                "別ワールドにいます: {world}"),
+                        "別ワールドにいます: {world}"),
                         Map.of("world", loadedMob.getWorld() == null
                                 ? "不明" : loadedMob.getWorld().getName()));
-            } else {
+            } else if (loadedMob != null && guardStatus == GuardData.Status.AVAILABLE) {
                 double distance = Math.sqrt(player.getLocation().distanceSquared(loadedMob.getLocation()));
                 status = messages.format(messages.get("gui.guard-distance", "距離: {distance}m"),
                         Map.of("distance", String.format(java.util.Locale.ROOT, "%.1f", distance)));
+            } else {
+                status = guardStatus.label();
             }
             String healthText = health == null ? "" : " &7/ HP &f" + health;
             messages.send(sender, "list-entry-details",

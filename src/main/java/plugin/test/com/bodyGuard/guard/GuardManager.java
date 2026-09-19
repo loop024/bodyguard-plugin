@@ -202,18 +202,35 @@ public final class GuardManager {
     public int reconcileAlreadyLoadedEntities() {
         int recovered = 0;
         for (World world : Bukkit.getWorlds()) {
-            for (Chunk chunk : world.getLoadedChunks()) {
-                for (Entity entity : chunk.getEntities()) {
-                    boolean knownBefore = guards.containsKey(entity.getUniqueId());
-                    GuardData tracked = trackLoadedEntity(entity);
-                    if (tracked != null && !knownBefore) {
-                        recovered++;
+            try {
+                for (Chunk chunk : world.getLoadedChunks()) {
+                    try {
+                        for (Entity entity : chunk.getEntities()) {
+                            if (entity == null) continue;
+                            try {
+                                boolean knownBefore = guards.containsKey(entity.getUniqueId());
+                                GuardData tracked = trackLoadedEntity(entity);
+                                if (tracked != null && !knownBefore) {
+                                    recovered++;
+                                }
+                            } catch (RuntimeException failure) {
+                                reportFailure("startup-reconcile", entity.getUniqueId(), failure);
+                            }
+                        }
+                    } catch (RuntimeException failure) {
+                        reportFailure("startup-chunk-reconcile", world.getUID(), failure);
                     }
                 }
+            } catch (RuntimeException failure) {
+                reportFailure("startup-world-reconcile", world.getUID(), failure);
             }
         }
         if (dirty) {
-            save();
+            try {
+                save();
+            } catch (RuntimeException failure) {
+                reportFailure("startup-save", null, failure);
+            }
         }
         return recovered;
     }
@@ -705,16 +722,20 @@ public final class GuardManager {
 
         int commanded = 0;
         for (GuardData data : getGuards(ownerId)) {
-            if (defense && data.getMode() == GuardMode.STAY && !plugin.stayGuardsDefendOwner()) {
-                continue;
+            try {
+                if (defense && data.getMode() == GuardMode.STAY && !plugin.stayGuardsDefendOwner()) {
+                    continue;
+                }
+                Mob guard = getLoadedMob(data);
+                if (guard == null || !LocationUtil.sameWorld(guard.getLocation(), target.getLocation())
+                        || isForbiddenTarget(guard, target)) {
+                    continue;
+                }
+                assignCombatTarget(data, guard, target);
+                commanded++;
+            } catch (RuntimeException failure) {
+                reportFailure("command-target", data.getGuardId(), failure);
             }
-            Mob guard = getLoadedMob(data);
-            if (guard == null || !LocationUtil.sameWorld(guard.getLocation(), target.getLocation())
-                    || isForbiddenTarget(guard, target)) {
-                continue;
-            }
-            assignCombatTarget(data, guard, target);
-            commanded++;
         }
         return commanded;
     }
@@ -792,12 +813,20 @@ public final class GuardManager {
         int teleported = 0;
         int position = 0;
         for (GuardData data : getGuards(owner.getUniqueId())) {
-            if (teleportGuard(owner.getUniqueId(), data.getGuardId(), position++)) {
-                teleported++;
+            try {
+                if (teleportGuard(owner.getUniqueId(), data.getGuardId(), position++)) {
+                    teleported++;
+                }
+            } catch (RuntimeException failure) {
+                reportFailure("teleport", data.getGuardId(), failure);
             }
         }
         if (teleported > 0) {
-            save();
+            try {
+                save();
+            } catch (RuntimeException failure) {
+                reportFailure("teleport-save", owner.getUniqueId(), failure);
+            }
         }
         return teleported;
     }
@@ -808,19 +837,19 @@ public final class GuardManager {
         }
         int healed = 0;
         for (GuardData data : getGuards(owner.getUniqueId())) {
-            Mob guard = getLoadedMob(data);
-            if (guard == null) {
-                continue;
-            }
-            AttributeInstance maxHealth = guard.getAttribute(Attribute.MAX_HEALTH);
-            if (maxHealth == null) {
-                continue;
-            }
-            double maximum = maxHealth.getValue();
-            if (guard.getHealth() >= maximum) {
-                continue;
-            }
             try {
+                Mob guard = getLoadedMob(data);
+                if (guard == null) {
+                    continue;
+                }
+                AttributeInstance maxHealth = guard.getAttribute(Attribute.MAX_HEALTH);
+                if (maxHealth == null) {
+                    continue;
+                }
+                double maximum = maxHealth.getValue();
+                if (!Double.isFinite(maximum) || maximum <= 0.0 || guard.getHealth() >= maximum) {
+                    continue;
+                }
                 guard.setHealth(maximum);
                 if (guard.getHealth() >= maximum) {
                     healed++;
@@ -828,6 +857,8 @@ public final class GuardManager {
                 }
             } catch (IllegalArgumentException ignored) {
                 // The entity may have changed state during this synchronous operation.
+            } catch (RuntimeException failure) {
+                reportFailure("heal", data.getGuardId(), failure);
             }
         }
         return healed;
@@ -1005,30 +1036,34 @@ public final class GuardManager {
 
     public void cleanup() {
         for (GuardData data : new ArrayList<>(guards.values())) {
-            if (data.isQuarantined()) {
-                searchOffsets.remove(data.getGuardId());
-                continue;
-            }
-            if (data.isRetired() && data.isOperationCompleted()) {
-                searchOffsets.remove(data.getGuardId());
-                continue;
-            }
-            Entity entity = findLoadedEntity(data);
-            if (entity instanceof Mob mob && entity.isValid() && !entity.isDead()) {
-                if (data.isDeletionPending()) finalizePendingDeletion(data, mob);
-                else if (data.isReleasePending()) finalizePendingRelease(data, mob);
-                else {
-                    if (!isEntityConsistent(data, mob)) {
-                        quarantine(data, "定期整合処理でEntityと保存データが一致しません");
-                        continue;
-                    }
-                    data.setLastLocation(entity.getLocation());
-                    data.observed();
-                    dirty = true;
+            try {
+                if (data.isQuarantined()) {
+                    searchOffsets.remove(data.getGuardId());
+                    continue;
                 }
-            }
-            if (!data.isActiveContract() || data.isOperationCompleted()) {
-                searchOffsets.remove(data.getGuardId());
+                if (data.isRetired() && data.isOperationCompleted()) {
+                    searchOffsets.remove(data.getGuardId());
+                    continue;
+                }
+                Entity entity = findLoadedEntity(data);
+                if (entity instanceof Mob mob && entity.isValid() && !entity.isDead()) {
+                    if (data.isDeletionPending()) finalizePendingDeletion(data, mob);
+                    else if (data.isReleasePending()) finalizePendingRelease(data, mob);
+                    else {
+                        if (!isEntityConsistent(data, mob)) {
+                            quarantine(data, "定期整合処理でEntityと保存データが一致しません");
+                            continue;
+                        }
+                        data.setLastLocation(entity.getLocation());
+                        data.observed();
+                        dirty = true;
+                    }
+                }
+                if (!data.isActiveContract() || data.isOperationCompleted()) {
+                    searchOffsets.remove(data.getGuardId());
+                }
+            } catch (RuntimeException failure) {
+                reportFailure("cleanup", data.getGuardId(), failure);
             }
         }
     }
@@ -1037,13 +1072,26 @@ public final class GuardManager {
             return;
         }
         boolean changed = false;
-        for (Entity entity : chunk.getEntities()) {
-            boolean wasDirty = dirty;
-            trackLoadedEntity(entity);
-            if (!wasDirty && dirty) changed = true;
+        try {
+            for (Entity entity : chunk.getEntities()) {
+                if (entity == null) continue;
+                try {
+                    boolean wasDirty = dirty;
+                    trackLoadedEntity(entity);
+                    if (!wasDirty && dirty) changed = true;
+                } catch (RuntimeException failure) {
+                    reportFailure("chunk-load", entity.getUniqueId(), failure);
+                }
+            }
+        } catch (RuntimeException failure) {
+            reportFailure("chunk-load-enumeration", null, failure);
         }
         if (changed) {
-            save();
+            try {
+                save();
+            } catch (RuntimeException failure) {
+                reportFailure("chunk-load-save", null, failure);
+            }
         }
     }
 
@@ -1053,31 +1101,45 @@ public final class GuardManager {
             return;
         }
         boolean changed = false;
+        Set<UUID> loadedIds = new java.util.HashSet<>();
         for (Entity entity : entities) {
-            boolean wasDirty = dirty;
-            trackLoadedEntity(entity);
-            if (!wasDirty && dirty) {
-                changed = true;
+            if (entity == null) continue;
+            loadedIds.add(entity.getUniqueId());
+            try {
+                boolean wasDirty = dirty;
+                trackLoadedEntity(entity);
+                if (!wasDirty && dirty) {
+                    changed = true;
+                }
+            } catch (RuntimeException failure) {
+                reportFailure("entities-load", entity.getUniqueId(), failure);
             }
         }
         // Only the entity-loading event is evidence that this chunk's entities
         // have been enumerated. An empty collection is meaningful here.
-        Set<UUID> loadedIds = new java.util.HashSet<>();
-        for (Entity entity : entities) loadedIds.add(entity.getUniqueId());
-        for (GuardData data : guards.values()) {
-            if (data.isRetired()) continue;
-            SavedPosition last = data.getSavedLast();
-            if (last == null || !chunk.getWorld().getUID().equals(last.worldId())
-                    || ((int) Math.floor(last.x()) >> 4) != chunk.getX()
-                    || ((int) Math.floor(last.z()) >> 4) != chunk.getZ()) continue;
-            if (!loadedIds.contains(data.getGuardId())) {
-                data.markMissingObservation(System.currentTimeMillis());
-                dirty = true;
-                changed = true;
+        UUID chunkWorldId = chunk.getWorld() == null ? null : chunk.getWorld().getUID();
+        for (GuardData data : new ArrayList<>(guards.values())) {
+            try {
+                if (data.isRetired()) continue;
+                SavedPosition last = data.getSavedLast();
+                if (last == null || chunkWorldId == null || !chunkWorldId.equals(last.worldId())
+                        || ((int) Math.floor(last.x()) >> 4) != chunk.getX()
+                        || ((int) Math.floor(last.z()) >> 4) != chunk.getZ()) continue;
+                if (!loadedIds.contains(data.getGuardId())) {
+                    data.markMissingObservation(System.currentTimeMillis());
+                    dirty = true;
+                    changed = true;
+                }
+            } catch (RuntimeException failure) {
+                reportFailure("entities-load-observation", data.getGuardId(), failure);
             }
         }
         if (changed) {
-            save();
+            try {
+                save();
+            } catch (RuntimeException failure) {
+                reportFailure("entities-load-save", null, failure);
+            }
         }
     }
 
@@ -1131,13 +1193,22 @@ public final class GuardManager {
         if (chunk == null) {
             return;
         }
-        for (Entity entity : chunk.getEntities()) {
-            GuardData data = guards.get(entity.getUniqueId());
-            if (data != null) {
-                data.setLastLocation(entity.getLocation());
-                data.markUnloaded();
-                dirty = true;
+        try {
+            for (Entity entity : chunk.getEntities()) {
+                if (entity == null) continue;
+                try {
+                    GuardData data = guards.get(entity.getUniqueId());
+                    if (data != null && data.isActiveContract()) {
+                        data.setLastLocation(entity.getLocation());
+                        data.markUnloaded();
+                        dirty = true;
+                    }
+                } catch (RuntimeException failure) {
+                    reportFailure("chunk-unload", entity.getUniqueId(), failure);
+                }
             }
+        } catch (RuntimeException failure) {
+            reportFailure("chunk-unload-enumeration", null, failure);
         }
     }
 
@@ -1146,28 +1217,44 @@ public final class GuardManager {
             return;
         }
         for (GuardData data : getGuards(ownerId)) {
-            Mob mob = getLoadedMob(data);
-            if (mob == null) {
-                continue;
+            try {
+                Mob mob = getLoadedMob(data);
+                if (mob == null) {
+                    continue;
+                }
+                data.clearCombat();
+                mob.setTarget(null);
+                mob.setAware(false);
+                data.setOfflineFrozen(true);
+            } catch (RuntimeException failure) {
+                reportFailure("freeze-owner", data.getGuardId(), failure);
             }
-            data.clearCombat();
-            mob.setTarget(null);
-            mob.setAware(false);
-            data.setOfflineFrozen(true);
         }
-        updateManagedChunks();
+        try {
+            updateManagedChunks();
+        } catch (RuntimeException failure) {
+            reportFailure("freeze-chunks", ownerId, failure);
+        }
     }
 
     public void resumeOwner(UUID ownerId) {
-        updateManagedChunks();
+        try {
+            updateManagedChunks();
+        } catch (RuntimeException failure) {
+            reportFailure("resume-chunks", ownerId, failure);
+        }
         for (GuardData data : getGuards(ownerId)) {
-            Mob mob = getLoadedMob(data);
-            if (mob == null) {
-                continue;
-            }
-            if (data.isOfflineFrozen()) {
-                mob.setAware(true);
-                data.setOfflineFrozen(false);
+            try {
+                Mob mob = getLoadedMob(data);
+                if (mob == null) {
+                    continue;
+                }
+                if (data.isOfflineFrozen()) {
+                    mob.setAware(true);
+                    data.setOfflineFrozen(false);
+                }
+            } catch (RuntimeException failure) {
+                reportFailure("resume-owner", data.getGuardId(), failure);
             }
         }
     }
@@ -1188,11 +1275,15 @@ public final class GuardManager {
         Map<UUID, Set<GuardChunk>> perOwner = new LinkedHashMap<>();
         Map<UUID, List<GuardData>> byOwner = new LinkedHashMap<>();
         for (GuardData data : guards.values()) {
-            Player owner = Bukkit.getPlayer(data.getOwnerId());
-            if (owner != null && owner.isOnline() && data.isActiveContract()
-                    && status(data) != GuardData.Status.MISSING
-                    && !data.isQuarantined()) {
-                byOwner.computeIfAbsent(data.getOwnerId(), ignored -> new ArrayList<>()).add(data);
+            try {
+                Player owner = Bukkit.getPlayer(data.getOwnerId());
+                if (owner != null && owner.isOnline() && data.isActiveContract()
+                        && status(data) != GuardData.Status.MISSING
+                        && !data.isQuarantined()) {
+                    byOwner.computeIfAbsent(data.getOwnerId(), ignored -> new ArrayList<>()).add(data);
+                }
+            } catch (RuntimeException failure) {
+                reportFailure("chunk-plan", data.getGuardId(), failure);
             }
         }
         List<UUID> owners = new ArrayList<>(byOwner.keySet());
@@ -1208,17 +1299,21 @@ public final class GuardManager {
                     if (round >= ownerGuards.size()) continue;
                     GuardData data = ownerGuards.get((round + Math.floorMod(chunkCursor, ownerGuards.size()))
                             % ownerGuards.size());
-                    Entity loaded = Bukkit.getEntity(data.getGuardId());
-                    Location location = loaded == null ? resolveSavedLocation(data.getSavedLast())
-                            : loaded.getLocation();
-                    if (location == null || location.getWorld() == null) continue;
-                    GuardChunk requested = new GuardChunk(location.getWorld().getUID(),
-                            location.getBlockX() >> 4, location.getBlockZ() >> 4);
-                    Set<GuardChunk> ownerChunks = perOwner.computeIfAbsent(ownerId,
-                            ignored -> new LinkedHashSet<>());
-                    if (ownerChunks.size() < plugin.getOwnerChunkLimit()) {
-                        ownerChunks.add(requested);
-                        desired.add(requested);
+                    try {
+                        Entity loaded = Bukkit.getEntity(data.getGuardId());
+                        Location location = loaded == null ? resolveSavedLocation(data.getSavedLast())
+                                : loaded.getLocation();
+                        if (location == null || location.getWorld() == null) continue;
+                        GuardChunk requested = new GuardChunk(location.getWorld().getUID(),
+                                location.getBlockX() >> 4, location.getBlockZ() >> 4);
+                        Set<GuardChunk> ownerChunks = perOwner.computeIfAbsent(ownerId,
+                                ignored -> new LinkedHashSet<>());
+                        if (ownerChunks.size() < plugin.getOwnerChunkLimit()) {
+                            ownerChunks.add(requested);
+                            desired.add(requested);
+                        }
+                    } catch (RuntimeException failure) {
+                        reportFailure("chunk-plan-owner", data.getGuardId(), failure);
                     }
                 }
             }
@@ -1228,11 +1323,17 @@ public final class GuardManager {
         // Return obsolete tickets before checking capacity for new ones.
         for (GuardChunk key : new ArrayList<>(managedChunks)) {
             if (desired.contains(key)) continue;
-            World world = Bukkit.getWorld(key.worldId());
-            if (world != null && world.isChunkLoaded(key.x(), key.z())) {
-                world.getChunkAt(key.x(), key.z()).removePluginChunkTicket(plugin);
+            boolean released = false;
+            try {
+                World world = Bukkit.getWorld(key.worldId());
+                if (world != null && world.isChunkLoaded(key.x(), key.z())) {
+                    world.getChunkAt(key.x(), key.z()).removePluginChunkTicket(plugin);
+                }
+                released = true;
+            } catch (RuntimeException failure) {
+                reportFailure("release-obsolete-chunk", key.worldId(), failure);
             }
-            managedChunks.remove(key);
+            if (released) managedChunks.remove(key);
         }
 
         int loads = 0;
@@ -1246,13 +1347,22 @@ public final class GuardManager {
             }
             if (loads >= plugin.getChunkLoadsPerCycle()) break;
             loads++;
-            Chunk chunk = world.getChunkAt(key.x(), key.z());
-            if (!chunk.addPluginChunkTicket(plugin)) continue;
-            managedChunks.add(key);
-            // A synchronously loaded chunk can already contain its entities before
-            // EntitiesLoadEvent reaches this plugin, so reconcile it immediately.
-            for (Entity entity : chunk.getEntities()) {
-                trackLoadedEntity(entity);
+            try {
+                Chunk chunk = world.getChunkAt(key.x(), key.z());
+                if (!chunk.addPluginChunkTicket(plugin)) continue;
+                managedChunks.add(key);
+                // A synchronously loaded chunk can already contain its entities before
+                // EntitiesLoadEvent reaches this plugin, so reconcile it immediately.
+                for (Entity entity : chunk.getEntities()) {
+                    if (entity == null) continue;
+                    try {
+                        trackLoadedEntity(entity);
+                    } catch (RuntimeException failure) {
+                        reportFailure("managed-chunk-reconcile", entity.getUniqueId(), failure);
+                    }
+                }
+            } catch (RuntimeException failure) {
+                reportFailure("managed-chunk-load", null, failure);
             }
         }
 
@@ -1268,9 +1378,13 @@ public final class GuardManager {
     /** Releases all plugin chunk tickets during shutdown or configuration changes. */
     public void releaseManagedChunks() {
         for (GuardChunk key : new ArrayList<>(managedChunks)) {
-            World world = Bukkit.getWorld(key.worldId());
-            if (world != null && world.isChunkLoaded(key.x(), key.z())) {
-                world.getChunkAt(key.x(), key.z()).removePluginChunkTicket(plugin);
+            try {
+                World world = Bukkit.getWorld(key.worldId());
+                if (world != null && world.isChunkLoaded(key.x(), key.z())) {
+                    world.getChunkAt(key.x(), key.z()).removePluginChunkTicket(plugin);
+                }
+            } catch (RuntimeException failure) {
+                reportFailure("release-chunk", key.worldId(), failure);
             }
         }
         managedChunks.clear();
@@ -1472,6 +1586,10 @@ public final class GuardManager {
             // entity mutation. A pending release cannot infer that completion.
             return data.getContractStatus() == GuardData.ContractStatus.RELEASED;
         }
+        if (!hasOriginalSettings(mob.getPersistentDataContainer())) {
+            quarantine(data, "解除時に元のMob設定スナップショットを確認できません");
+            return false;
+        }
         if (!clearCompanion(data)) return false;
         if (data.isReleasePending() || marked) {
             plugin.playGuardFeedback(mob, GuardFeedback.RELEASE);
@@ -1481,6 +1599,14 @@ public final class GuardManager {
         }
         if (data.getContractStatus() == GuardData.ContractStatus.RELEASED) return true;
         return completeOperation(data);
+    }
+
+    private boolean hasOriginalSettings(PersistentDataContainer pdc) {
+        return getString(pdc, keys.originalName()) != null
+                && pdc.get(keys.originalNameVisible(), PersistentDataType.BYTE) != null
+                && pdc.get(keys.originalRemoveWhenFarAway(), PersistentDataType.BYTE) != null
+                && pdc.get(keys.originalPersistent(), PersistentDataType.BYTE) != null
+                && pdc.get(keys.originalAware(), PersistentDataType.BYTE) != null;
     }
 
     private boolean finalizePendingDeletion(GuardData data, Mob mob) {

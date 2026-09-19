@@ -202,6 +202,12 @@ public final class BodyGuard extends JavaPlugin {
             requireInteger(configuration, "guard-management.max-loaded-chunks-per-owner", 1, 256);
             requireInteger(configuration, "guard-management.chunk-loads-per-cycle", 1, 16);
             requireInteger(configuration, "guard-management.search-chunks-per-cycle", 1, 256);
+            int maxChunks = configuration.getInt("guard-management.max-loaded-chunks", 64);
+            int ownerChunks = configuration.getInt("guard-management.max-loaded-chunks-per-owner", 16);
+            if (ownerChunks > maxChunks) {
+                throw new IllegalArgumentException(
+                        "guard-management.max-loaded-chunks-per-ownerが全体上限を超えています");
+            }
             requireFinite(configuration, "follow.start-distance", 0.0, 1024.0);
             requireFinite(configuration, "follow.teleport-distance", 1.0, 4096.0);
             requireFinite(configuration, "follow.move-speed", 0.05, 1.5);
