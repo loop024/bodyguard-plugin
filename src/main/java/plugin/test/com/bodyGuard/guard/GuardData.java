@@ -20,6 +20,22 @@ public final class GuardData {
         DEAD
     }
 
+    /** Selects whether this guard protects its owner or one configured role target. */
+    public enum ProtectionKind {
+        OWNER,
+        ROLE
+    }
+
+    /** Runtime state of the role-target resolver and cross-world transfer. */
+    public enum ProtectionState {
+        TARGET_UNAVAILABLE,
+        TARGET_SELECTED,
+        SAME_WORLD,
+        WORLD_TRANSFER_PENDING,
+        ACTIVE,
+        WAITING
+    }
+
     public enum ObservationStatus {
         AVAILABLE,
         UNLOADED,
@@ -73,6 +89,14 @@ public final class GuardData {
     private UUID combatTargetId;
     private boolean offlineFrozen;
     private boolean favorite;
+
+    private ProtectionKind protectionKind = ProtectionKind.OWNER;
+    private String roleId;
+    /** The last selected target is retained so a returning player can be preferred. */
+    private UUID selectedTargetUuid;
+    private long selectionRevision;
+    private ProtectionState protectionState = ProtectionState.ACTIVE;
+    private String protectionFailureReason;
 
     private ContractStatus contractStatus = ContractStatus.ACTIVE;
     private ObservationStatus observationStatus = ObservationStatus.CHECKING;
@@ -188,6 +212,74 @@ public final class GuardData {
     public void setOfflineFrozen(boolean offlineFrozen) { this.offlineFrozen = offlineFrozen; }
     public boolean isFavorite() { return favorite; }
     public void setFavorite(boolean favorite) { this.favorite = favorite; }
+
+    public ProtectionKind getProtectionKind() { return protectionKind; }
+
+    public boolean isRoleProtection() { return protectionKind == ProtectionKind.ROLE; }
+
+    public String getRoleId() { return roleId; }
+
+    public UUID getSelectedTargetUuid() { return selectedTargetUuid; }
+
+    public long getSelectionRevision() { return selectionRevision; }
+
+    public ProtectionState getProtectionState() { return protectionState; }
+
+    public String getProtectionFailureReason() { return protectionFailureReason; }
+
+    /** Changes the user-selected protection kind while preserving the last target for the same role. */
+    public void setProtection(ProtectionKind kind, String newRoleId) {
+        ProtectionKind nextKind = kind == null ? ProtectionKind.OWNER : kind;
+        String normalizedRole = newRoleId == null || newRoleId.isBlank() ? null : newRoleId;
+        boolean changed = protectionKind != nextKind || !Objects.equals(roleId, normalizedRole);
+        protectionKind = nextKind;
+        roleId = nextKind == ProtectionKind.ROLE ? normalizedRole : null;
+        if (nextKind == ProtectionKind.OWNER) {
+            selectedTargetUuid = null;
+            protectionState = ProtectionState.ACTIVE;
+            protectionFailureReason = null;
+        } else if (changed) {
+            selectedTargetUuid = null;
+            selectionRevision = selectionRevision == Long.MAX_VALUE
+                    ? Long.MAX_VALUE : selectionRevision + 1L;
+            protectionState = ProtectionState.TARGET_UNAVAILABLE;
+            protectionFailureReason = null;
+        }
+    }
+
+    /** Updates the remembered target and advances the monotonic selection revision. */
+    public boolean setSelectedTargetUuid(UUID targetUuid) {
+        if (Objects.equals(selectedTargetUuid, targetUuid)) return false;
+        selectedTargetUuid = targetUuid;
+        selectionRevision = selectionRevision == Long.MAX_VALUE
+                ? Long.MAX_VALUE : selectionRevision + 1L;
+        return true;
+    }
+
+    public void setSelectionRevision(long revision) {
+        selectionRevision = Math.max(0L, revision);
+    }
+
+    public void setProtectionState(ProtectionState state, String reason) {
+        protectionState = state == null ? ProtectionState.WAITING : state;
+        protectionFailureReason = reason == null || reason.isBlank() ? null : reason;
+    }
+
+    /** Restores a complete protection snapshot when YAML/PDC persistence fails. */
+    public void restoreProtection(ProtectionSnapshot snapshot) {
+        if (snapshot == null) return;
+        protectionKind = snapshot.kind() == null ? ProtectionKind.OWNER : snapshot.kind();
+        roleId = snapshot.roleId();
+        selectedTargetUuid = snapshot.selectedTargetUuid();
+        selectionRevision = Math.max(0L, snapshot.selectionRevision());
+        protectionState = snapshot.state() == null ? ProtectionState.WAITING : snapshot.state();
+        protectionFailureReason = snapshot.failureReason();
+    }
+
+    public ProtectionSnapshot snapshotProtection() {
+        return new ProtectionSnapshot(protectionKind, roleId, selectedTargetUuid,
+                selectionRevision, protectionState, protectionFailureReason);
+    }
 
     public ContractStatus getContractStatus() { return contractStatus; }
 
@@ -341,5 +433,10 @@ public final class GuardData {
     public void markQuarantined(String reason) {
         observationStatus = ObservationStatus.QUARANTINED;
         recordOperationFailure(reason);
+    }
+
+    public record ProtectionSnapshot(ProtectionKind kind, String roleId,
+                                     UUID selectedTargetUuid, long selectionRevision,
+                                     ProtectionState state, String failureReason) {
     }
 }
