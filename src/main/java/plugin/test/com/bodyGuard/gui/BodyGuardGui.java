@@ -1312,15 +1312,15 @@ public final class BodyGuardGui implements Listener {
 
     private void handleConfirmationClick(Player player, BodyGuardMenuHolder holder, int slot) {
         if (slot == 11) {
-            if (!holder.consumeConfirmation()) {
-                showResult(player, "gui-already-processed",
-                        "&eこの確認画面はすでに処理済みです。最新の一覧を開いてください。", Map.of(), false);
-                return;
-            }
             String permission = holder.isDeleteAll() ? "bodyguard.deleteall"
                     : holder.isReleaseAll() ? "bodyguard.releaseall" : "bodyguard.release";
             if (!hasPermission(player, permission)) {
                 showResult(player, "gui-no-permission", "&cこの操作を使う権限がありません。", Map.of(), false);
+                return;
+            }
+            if (!holder.consumeConfirmation()) {
+                showResult(player, "gui-already-processed",
+                        "&eこの確認画面はすでに処理済みです。最新の一覧を開いてください。", Map.of(), false);
                 return;
             }
             if (holder.isDeleteAll()) {

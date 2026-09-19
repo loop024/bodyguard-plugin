@@ -130,7 +130,9 @@ public final class OperationLedgerStorage {
             }
             if (data.getOperationId() == null) {
                 data.beginOperation(entry.operationId(), entry.type(), entry.acceptedAt());
-            } else if (!entry.operationId().equals(data.getOperationId())) {
+            } else if (!entry.operationId().equals(data.getOperationId())
+                    || data.getOperationType() != entry.type()
+                    || data.getOperationAcceptedAt() != entry.acceptedAt()) {
                 data.markQuarantined("操作台帳と護衛データの操作IDが一致しません");
                 continue;
             }

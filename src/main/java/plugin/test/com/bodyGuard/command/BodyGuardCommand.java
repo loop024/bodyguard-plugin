@@ -364,12 +364,23 @@ public final class BodyGuardCommand implements CommandExecutor {
             messages.send(sender, "not-your-guard");
             return true;
         }
-        if (!(target instanceof Mob mob) || !manager.releaseGuard(player.getUniqueId(), data.getGuardId())) {
+        if (!(target instanceof Mob mob)) {
             messages.send(sender, "not-looking-at-mob");
             return true;
         }
-        plugin.playGuardEffect(mob, false);
-        messages.send(sender, "guard-released");
+        GuardManager.ReleaseResult result = manager.releaseGuards(
+                player.getUniqueId(), java.util.List.of(data.getGuardId()));
+        if (result.released() > 0) {
+            plugin.playGuardEffect(mob, false);
+            messages.send(sender, "guard-released");
+        } else if (result.queued() > 0) {
+            messages.send(sender, "release-queued",
+                    "&e解除を受け付けました。保存済みの解除処理を完了するまで護衛として再登録しません。",
+                    Map.of("name", data.getName()));
+        } else {
+            messages.send(sender, "storage-unavailable",
+                    "&c解除を保存できなかったため、護衛は変更していません。再試行してください。");
+        }
         return true;
     }
 
@@ -500,7 +511,7 @@ public final class BodyGuardCommand implements CommandExecutor {
             usage(sender, "/bg status [server]");
             return true;
         }
-        boolean server = args.length == 2;
+        boolean server = args.length == 2 || !(sender instanceof Player);
         if (server && !sender.hasPermission("bodyguard.admin")) {
             messages.send(sender, "no-permission");
             return true;

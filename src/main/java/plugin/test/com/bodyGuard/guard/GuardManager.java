@@ -293,6 +293,12 @@ public final class GuardManager {
             reconcileRetiredEntity(previous, mob);
             return null;
         }
+        if (previous != null && previous.isQuarantined()) {
+            // A contradictory record must remain visible to administrators until
+            // it is repaired. Never replace it with a reconstructed PDC record.
+            plugin.getLogger().warning("隔離中の護衛をPDCから再構成しません: " + entityId);
+            return null;
+        }
 
         PersistentDataContainer pdc = mob.getPersistentDataContainer();
         if (!isMarked(pdc)) {
@@ -526,7 +532,10 @@ public final class GuardManager {
                 continue;
             }
             try {
-                clearCompanion(data);
+                if (!clearCompanion(data)) {
+                    queued++;
+                    continue;
+                }
                 Entity entity = findLoadedEntity(data);
                 if (entity instanceof Mob mob) {
                     if (finalizePendingRelease(data, mob)) released++;
@@ -884,7 +893,10 @@ public final class GuardManager {
             }
             try {
                 data.clearCombat();
-                clearCompanion(data);
+                if (!clearCompanion(data)) {
+                    queued++;
+                    continue;
+                }
                 Entity entity = findLoadedEntity(data);
                 if (entity instanceof Mob mob) {
                     if (finalizePendingDeletion(data, mob)) deleted++;
@@ -994,7 +1006,7 @@ public final class GuardManager {
         Set<UUID> loadedIds = new java.util.HashSet<>();
         for (Entity entity : entities) loadedIds.add(entity.getUniqueId());
         for (GuardData data : guards.values()) {
-            if (data.isRetired() || data.getMissingSince() != 0) continue;
+            if (data.isRetired()) continue;
             SavedPosition last = data.getSavedLast();
             if (last == null || !chunk.getWorld().getUID().equals(last.worldId())
                     || ((int) Math.floor(last.x()) >> 4) != chunk.getX()
@@ -1064,8 +1076,7 @@ public final class GuardManager {
             GuardData data = guards.get(entity.getUniqueId());
             if (data != null) {
                 data.setLastLocation(entity.getLocation());
-                data.setMissingSince(0);
-                data.setMissingObservations(0);
+                data.markUnloaded();
                 dirty = true;
             }
         }
@@ -1389,13 +1400,13 @@ public final class GuardManager {
         if (!data.isReleasePending() && data.getContractStatus() != GuardData.ContractStatus.RELEASED) {
             return false;
         }
+        if (!clearCompanion(data)) return false;
         if (data.isReleasePending() || isMarked(mob.getPersistentDataContainer())) {
             plugin.playGuardFeedback(mob, GuardFeedback.RELEASE);
             data.clearCombat();
             restoreOriginalSettings(mob);
             clearPdc(mob);
         }
-        clearCompanion(data);
         if (data.getContractStatus() == GuardData.ContractStatus.RELEASED) return true;
         return completeOperation(data);
     }
@@ -1403,23 +1414,23 @@ public final class GuardManager {
     private boolean finalizePendingDeletion(GuardData data, Mob mob) {
         if (data == null || mob == null) return false;
         if (data.getContractStatus() != GuardData.ContractStatus.DELETED) {
+            if (!clearCompanion(data)) return false;
             data.clearCombat();
             mob.remove();
-            clearCompanion(data);
             return completeOperation(data);
         }
         return true;
     }
 
-    private void clearCompanion(GuardData data) {
+    private boolean clearCompanion(GuardData data) {
         if (!isCompanion(data)) {
-            return;
+            return true;
         }
         if (playerDataStorage.setCompanion(data.getOwnerId(), null)
                 != SafeYamlFile.SaveResult.SUCCESS) {
             data.recordOperationFailure("相棒設定の保存に失敗しました");
             dirty = true;
-            return;
+            return false;
         }
         Player owner = Bukkit.getPlayer(data.getOwnerId());
         if (owner != null && owner.isOnline()) {
@@ -1427,6 +1438,7 @@ public final class GuardManager {
                     "&e{name}がいなくなったため、相棒設定を解除しました。",
                     Map.of("name", data.getName()));
         }
+        return true;
     }
 
     public record ReleaseResult(int released, int queued, int failed) {
