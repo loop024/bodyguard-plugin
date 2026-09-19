@@ -73,8 +73,26 @@ public final class SafeYamlFile {
     private YamlConfiguration read(File source) throws Exception {
         YamlConfiguration result = new YamlConfiguration();
         result.load(source);
-        if (result.contains(expectedRoot) && !result.isConfigurationSection(expectedRoot)) {
+        if (!result.isConfigurationSection(expectedRoot)) {
             throw new IOException("Invalid section: " + expectedRoot);
+        }
+        if (result.contains("version")) {
+            Object version = result.get("version");
+            if (!(version instanceof Number number) || number.intValue() < 1
+                    || number.doubleValue() != number.intValue()) {
+                throw new IOException("Invalid schema version");
+            }
+            int supported = expectedRoot.equals("guards") ? 4
+                    : expectedRoot.equals("players") ? 2 : Integer.MAX_VALUE;
+            if (number.intValue() > supported) throw new IOException("Unsupported schema version");
+        }
+        if (expectedRoot.equals("guards") && result.contains("record-count")) {
+            Object count = result.get("record-count");
+            if (!(count instanceof Number number) || number.longValue() < 0
+                    || number.doubleValue() != number.longValue()
+                    || number.longValue() != result.getConfigurationSection(expectedRoot).getKeys(false).size()) {
+                throw new IOException("Guard record count does not match stored entries");
+            }
         }
         return result;
     }

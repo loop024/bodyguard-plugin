@@ -53,7 +53,7 @@ public final class PlayerListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onEntitiesLoad(EntitiesLoadEvent event) {
-        manager.handleEntitiesLoad(event.getEntities());
+        manager.handleEntitiesLoad(event.getChunk(), event.getEntities());
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)

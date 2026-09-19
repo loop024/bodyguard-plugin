@@ -150,6 +150,7 @@ public final class PlayerDataStorage {
         dirty = true;
         YamlConfiguration configuration = new YamlConfiguration();
         configuration.set("version", 2);
+        configuration.createSection("players");
         for (Map.Entry<UUID, State> entry : states.entrySet()) {
             configuration.set("players." + entry.getKey() + ".tutorial", entry.getValue().name());
         }

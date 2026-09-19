@@ -49,6 +49,8 @@ public final class GuardTask extends BukkitRunnable {
         if (autosaveTicks > 0L && executions % executionsPerAutosave == 0L) {
             manager.save();
         }
+        // Failed writes need a retry even when periodic autosave is disabled.
+        if (executions % 60L == 0L) manager.retryFailedSaves();
     }
 
     private void tickGuard(GuardData data) {

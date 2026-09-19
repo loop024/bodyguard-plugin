@@ -67,6 +67,7 @@ public final class BodyGuard extends JavaPlugin {
     private Set<EntityType> allowedMobTypes = Collections.emptySet();
     private GuardTask guardTask;
     private BodyGuardGui gui;
+    private boolean registryInitialized;
 
     @Override
     public void onEnable() {
@@ -83,6 +84,7 @@ public final class BodyGuard extends JavaPlugin {
             playerDataStorage = new PlayerDataStorage(this);
             guardManager = new GuardManager(this, storage, keys, playerDataStorage);
             guardManager.load(saved);
+            registryInitialized = true;
         } catch (RuntimeException failure) {
             getLogger().log(Level.SEVERE, "保存データを安全に読み込めないため BodyGuard を停止します。", failure);
             getServer().getPluginManager().disablePlugin(this);
@@ -135,9 +137,9 @@ public final class BodyGuard extends JavaPlugin {
         }
         if (guardManager != null) {
             guardManager.releaseManagedChunks();
-            guardManager.forceSave();
+            if (registryInitialized) guardManager.forceSave();
         }
-        if (playerDataStorage != null) playerDataStorage.retrySave();
+        if (registryInitialized && playerDataStorage != null) playerDataStorage.retrySave();
         HandlerList.unregisterAll(this);
     }
 

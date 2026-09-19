@@ -86,6 +86,12 @@ public final class GuardManager {
         }
     }
 
+    /** Retry failed writes independently of the configured autosave interval. */
+    public void retryFailedSaves() {
+        playerDataStorage.retrySave();
+        if (dirty && !storage.isHealthy()) save();
+    }
+
     public boolean persistNow() {
         boolean saved = storage.save(new ArrayList<>(guards.values()));
         if (saved) dirty = false;
@@ -804,6 +810,7 @@ public final class GuardManager {
 
     public void cleanup() {
         for (GuardData data : new ArrayList<>(guards.values())) {
+            if (data.isRetired() && data.isOperationCompleted()) continue;
             Entity entity = findLoadedEntity(data);
             if (entity instanceof Mob mob && entity.isValid() && !entity.isDead()) {
                 if (data.isDeletionPending()) finalizePendingDeletion(data, mob);
@@ -813,9 +820,6 @@ public final class GuardManager {
                     data.observed();
                     dirty = true;
                 }
-            } else if (!data.isRetired() && data.getMissingSince() == 0) {
-                data.setMissingSince(System.currentTimeMillis());
-                dirty = true;
             }
         }
     }
@@ -838,8 +842,8 @@ public final class GuardManager {
     }
 
     /** Reconciles entities after servers finish the entity-loading phase of a chunk. */
-    public void handleEntitiesLoad(Collection<Entity> entities) {
-        if (entities == null || entities.isEmpty()) {
+    public void handleEntitiesLoad(Chunk chunk, Collection<Entity> entities) {
+        if (chunk == null || entities == null) {
             return;
         }
         boolean changed = false;
@@ -847,6 +851,22 @@ public final class GuardManager {
             int before = guards.size();
             trackLoadedEntity(entity);
             if (guards.size() != before) {
+                changed = true;
+            }
+        }
+        // Only the entity-loading event is evidence that this chunk's entities
+        // have been enumerated. An empty collection is meaningful here.
+        Set<UUID> loadedIds = new java.util.HashSet<>();
+        for (Entity entity : entities) loadedIds.add(entity.getUniqueId());
+        for (GuardData data : guards.values()) {
+            if (data.isRetired() || data.getMissingSince() != 0) continue;
+            Location last = data.getLastLocation();
+            if (last == null || last.getWorld() != chunk.getWorld()
+                    || (last.getBlockX() >> 4) != chunk.getX()
+                    || (last.getBlockZ() >> 4) != chunk.getZ()) continue;
+            if (!loadedIds.contains(data.getGuardId())) {
+                data.setMissingSince(System.currentTimeMillis());
+                dirty = true;
                 changed = true;
             }
         }
@@ -904,6 +924,7 @@ public final class GuardManager {
             GuardData data = getGuardData(entity);
             if (data != null) {
                 data.setLastLocation(entity.getLocation());
+                data.setMissingSince(0);
                 dirty = true;
             }
         }
