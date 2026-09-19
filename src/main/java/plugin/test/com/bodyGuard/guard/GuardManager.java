@@ -28,7 +28,9 @@ import plugin.test.com.bodyGuard.BodyGuard;
 import plugin.test.com.bodyGuard.BodyGuard.GuardFeedback;
 import plugin.test.com.bodyGuard.BodyGuard.NamespacedKeys;
 import plugin.test.com.bodyGuard.storage.GuardStorage;
+import plugin.test.com.bodyGuard.storage.OperationLedgerStorage;
 import plugin.test.com.bodyGuard.storage.PlayerDataStorage;
+import plugin.test.com.bodyGuard.storage.SafeYamlFile;
 import plugin.test.com.bodyGuard.util.EntityUtil;
 import plugin.test.com.bodyGuard.util.LocationUtil;
 
@@ -41,27 +43,50 @@ public final class GuardManager {
     private final GuardStorage storage;
     private final NamespacedKeys keys;
     private final PlayerDataStorage playerDataStorage;
+    private final OperationLedgerStorage operationLedger;
     private final Map<UUID, GuardData> guards = new LinkedHashMap<>();
     private final Set<GuardChunk> managedChunks = new LinkedHashSet<>();
     private boolean dirty;
     private final Map<String, Long> failureWarnings = new LinkedHashMap<>();
+    private final Map<String, Long> retryNotBefore = new LinkedHashMap<>();
     private final Map<UUID, Integer> searchOffsets = new LinkedHashMap<>();
     private int searchBudget = 32;
 
     public void reportFailure(String operation, UUID guardId, RuntimeException failure) {
         long now = System.currentTimeMillis();
-        if (now - failureWarnings.getOrDefault(operation, 0L) < 30000) return;
-        failureWarnings.put(operation, now);
+        String key = operation + ":" + (guardId == null ? "global" : guardId);
+        if (now - failureWarnings.getOrDefault(key, 0L) < 30000) return;
+        failureWarnings.put(key, now);
+        retryNotBefore.put(key, now + Math.min(60000L,
+                Math.max(5000L, 5000L + retryNotBefore.size() * 1000L)));
         plugin.getLogger().log(java.util.logging.Level.WARNING,
                 "BodyGuard " + operation + " に失敗しました。対象: " + guardId, failure);
     }
 
     public GuardManager(BodyGuard plugin, GuardStorage storage, NamespacedKeys keys,
-                        PlayerDataStorage playerDataStorage) {
+                        PlayerDataStorage playerDataStorage,
+                        OperationLedgerStorage operationLedger) {
         this.plugin = plugin;
         this.storage = storage;
         this.keys = keys;
         this.playerDataStorage = playerDataStorage;
+        this.operationLedger = operationLedger;
+    }
+
+    public GuardManager(BodyGuard plugin, GuardStorage storage, NamespacedKeys keys,
+                        PlayerDataStorage playerDataStorage) {
+        this(plugin, storage, keys, playerDataStorage, null);
+    }
+
+    public boolean shouldRetry(String operation, UUID guardId) {
+        String key = operation + ":" + (guardId == null ? "global" : guardId);
+        return System.currentTimeMillis() >= retryNotBefore.getOrDefault(key, 0L);
+    }
+
+    public void clearFailure(String operation, UUID guardId) {
+        String key = operation + ":" + (guardId == null ? "global" : guardId);
+        retryNotBefore.remove(key);
+        failureWarnings.remove(key);
     }
 
     public void load(Map<UUID, GuardData> savedGuards) {
@@ -69,63 +94,97 @@ public final class GuardManager {
         if (savedGuards != null) {
             guards.putAll(savedGuards);
         }
+        if (operationLedger != null) {
+            operationLedger.applyTo(guards);
+            if (guards.values().stream().anyMatch(GuardData::isQuarantined)) {
+                dirty = true;
+            }
+        }
         for (Map.Entry<UUID, UUID> entry : playerDataStorage.getCompanions().entrySet()) {
             GuardData companion = guards.get(entry.getValue());
             if (companion == null || !entry.getKey().equals(companion.getOwnerId())) {
                 playerDataStorage.setCompanion(entry.getKey(), null);
             }
         }
-        dirty = false;
+        // Ledger application or companion cleanup may have changed the in-memory
+        // registry and must be persisted on the normal startup reconciliation path.
     }
 
     /** Saves only when persistent guard data changed since the previous successful save. */
     public void save() {
         playerDataStorage.retrySave();
-        if (dirty && storage.save(new ArrayList<>(guards.values()))) {
+        if (dirty) persistRegistry();
+    }
+
+    private boolean persistRegistry() {
+        if (!dirty) return true;
+        boolean saved = storage.saveWithResult(new ArrayList<>(guards.values()))
+                == SafeYamlFile.SaveResult.SUCCESS;
+        if (saved) {
             dirty = false;
         }
+        return saved;
     }
 
     /** Retry failed writes independently of the configured autosave interval. */
     public void retryFailedSaves() {
         playerDataStorage.retrySave();
-        if (dirty && !storage.isHealthy()) save();
+        if (dirty) persistRegistry();
     }
 
     public boolean persistNow() {
-        boolean saved = storage.save(new ArrayList<>(guards.values()));
-        if (saved) dirty = false;
-        return saved;
+        return persistRegistry();
     }
 
     public boolean isStorageHealthy() {
-        return storage.isHealthy() && playerDataStorage.isHealthy();
+        return storage.isHealthy() && playerDataStorage.isHealthy()
+                && (operationLedger == null || operationLedger.isHealthy());
     }
 
     public GuardData.Status status(GuardData data) {
-        if (data.isDeathConfirmed()) return GuardData.Status.DEAD;
-        if (data.isDeletionPending()) return data.isOperationCompleted()
-                ? GuardData.Status.DELETED : GuardData.Status.DELETE_PENDING;
-        if (data.isReleasePending()) return data.isOperationCompleted()
-                ? GuardData.Status.RELEASED : GuardData.Status.RELEASE_PENDING;
+        if (data == null) return GuardData.Status.QUARANTINED;
+        switch (data.getContractStatus()) {
+            case RELEASE_PENDING -> { return GuardData.Status.RELEASE_PENDING; }
+            case RELEASED -> { return GuardData.Status.RELEASED; }
+            case DELETE_PENDING -> { return GuardData.Status.DELETE_PENDING; }
+            case DELETED -> { return GuardData.Status.DELETED; }
+            case DEAD -> { return GuardData.Status.DEAD; }
+            case ACTIVE -> { }
+        }
+        if (data.isQuarantined()) return GuardData.Status.QUARANTINED;
         Entity entity = Bukkit.getEntity(data.getGuardId());
-        if (entity instanceof Mob && EntityUtil.isAlive(entity)) return GuardData.Status.AVAILABLE;
-        Location last = data.getLastLocation();
-        if (last == null) return data.getSavedLast() == null
-                ? GuardData.Status.MISSING : GuardData.Status.WORLD_UNAVAILABLE;
-        if (!last.getWorld().isChunkLoaded(last.getBlockX() >> 4, last.getBlockZ() >> 4))
+        if (entity != null) {
+            if (isEntityConsistent(data, entity) && EntityUtil.isAlive(entity)) {
+                return GuardData.Status.AVAILABLE;
+            }
+            return GuardData.Status.QUARANTINED;
+        }
+        SavedPosition savedLast = data.getSavedLast();
+        if (savedLast == null || savedLast.worldId() == null) {
+            return GuardData.Status.CHECKING;
+        }
+        World world = Bukkit.getWorld(savedLast.worldId());
+        if (world == null) return GuardData.Status.WORLD_UNAVAILABLE;
+        if (!world.isChunkLoaded(savedLast.x() < 0 ? ((int) Math.floor(savedLast.x())) >> 4
+                : ((int) Math.floor(savedLast.x())) >> 4,
+                savedLast.z() < 0 ? ((int) Math.floor(savedLast.z())) >> 4
+                : ((int) Math.floor(savedLast.z())) >> 4)) {
             return GuardData.Status.UNLOADED;
-        return data.getMissingSince() > 0 && System.currentTimeMillis() - data.getMissingSince() >= 30000
+        }
+        return data.getMissingSince() > 0 && data.getMissingObservations() >= 2
+                && System.currentTimeMillis() - data.getMissingSince() >= 30000L
                 ? GuardData.Status.MISSING : GuardData.Status.CHECKING;
     }
 
     public List<GuardData> getHistory(UUID ownerId) {
-        return guards.values().stream().filter(data -> ownerId.equals(data.getOwnerId()) && data.isRetired()).toList();
+        return guards.values().stream().filter(data -> ownerId != null
+                && ownerId.equals(data.getOwnerId()) && data.isRetired()).toList();
     }
 
     /** Persists the current registry even when no change was recorded, for plugin shutdown. */
     public void forceSave() {
-        if (storage.save(new ArrayList<>(guards.values()))) {
+        if (storage.saveWithResult(new ArrayList<>(guards.values()))
+                == plugin.test.com.bodyGuard.storage.SafeYamlFile.SaveResult.SUCCESS) {
             dirty = false;
         }
     }
@@ -165,10 +224,9 @@ public final class GuardManager {
             return result;
         }
         for (GuardData data : guards.values()) {
-            // A deletion-pending entry is only an internal tombstone used to remove
-            // an entity if its chunk is loaded later. It is no longer a usable guard
-            // and must not occupy the player's list or guard limit.
-            if (ownerId.equals(data.getOwnerId()) && !data.isDeletionPending() && !data.isReleasePending()) {
+            // Every ACTIVE contract, including MISSING and WORLD_UNAVAILABLE,
+            // retains the owner's slot until the owner explicitly releases it.
+            if (ownerId.equals(data.getOwnerId()) && data.isActiveContract()) {
                 result.add(data);
             }
         }

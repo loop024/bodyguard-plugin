@@ -1,6 +1,7 @@
 package plugin.test.com.bodyGuard.util;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -28,7 +29,53 @@ public final class MessageUtil {
         if (!file.exists()) {
             plugin.saveResource("messages.yml", false);
         }
-        configuration = YamlConfiguration.loadConfiguration(file);
+        YamlConfiguration candidate = new YamlConfiguration();
+        try {
+            candidate.load(file);
+            configuration = candidate;
+        } catch (Exception failure) {
+            plugin.getLogger().log(java.util.logging.Level.SEVERE,
+                    "messages.ymlを読み込めないため、組み込みの空設定を使用します。", failure);
+            configuration = new YamlConfiguration();
+        }
+    }
+
+    /** Loads messages into a temporary object and commits only on success. */
+    public boolean reloadSafely() {
+        if (!file.exists()) {
+            plugin.saveResource("messages.yml", false);
+        }
+        YamlConfiguration candidate = new YamlConfiguration();
+        try {
+            candidate.load(file);
+            Object prefix = candidate.get("prefix");
+            if (prefix != null && !(prefix instanceof String)) {
+                throw new IOException("prefixは文字列である必要があります");
+            }
+            configuration = candidate;
+            return true;
+        } catch (Exception failure) {
+            plugin.getLogger().log(java.util.logging.Level.SEVERE,
+                    "messages.ymlが不正なため、現在のメッセージ設定を維持します。", failure);
+            return false;
+        }
+    }
+
+    /** Validates messages.yml without changing the active configuration. */
+    public boolean canLoadSafely() {
+        if (!file.exists()) {
+            plugin.saveResource("messages.yml", false);
+        }
+        YamlConfiguration candidate = new YamlConfiguration();
+        try {
+            candidate.load(file);
+            Object prefix = candidate.get("prefix");
+            return prefix == null || prefix instanceof String;
+        } catch (Exception failure) {
+            plugin.getLogger().log(java.util.logging.Level.SEVERE,
+                    "messages.ymlの検証に失敗しました。", failure);
+            return false;
+        }
     }
 
     public void send(CommandSender sender, String key) {

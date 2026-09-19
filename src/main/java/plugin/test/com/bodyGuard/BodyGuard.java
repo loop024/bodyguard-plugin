@@ -24,6 +24,7 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.configuration.file.YamlConfiguration;
 
 import plugin.test.com.bodyGuard.command.BodyGuardCommand;
 import plugin.test.com.bodyGuard.command.BodyGuardTabCompleter;
@@ -39,6 +40,7 @@ import plugin.test.com.bodyGuard.listener.PlayerListener;
 import plugin.test.com.bodyGuard.listener.TargetListener;
 import plugin.test.com.bodyGuard.storage.GuardStorage;
 import plugin.test.com.bodyGuard.storage.PlayerDataStorage;
+import plugin.test.com.bodyGuard.storage.OperationLedgerStorage;
 import plugin.test.com.bodyGuard.util.EntityUtil;
 import plugin.test.com.bodyGuard.util.MessageUtil;
 
@@ -64,6 +66,7 @@ public final class BodyGuard extends JavaPlugin {
     private GuardStorage storage;
     private PlayerDataStorage playerDataStorage;
     private GuardManager guardManager;
+    private OperationLedgerStorage operationLedger;
     private Set<EntityType> allowedMobTypes = Collections.emptySet();
     private GuardTask guardTask;
     private BodyGuardGui gui;
@@ -76,13 +79,19 @@ public final class BodyGuard extends JavaPlugin {
 
         keys = new NamespacedKeys(this);
         messages = new MessageUtil(this);
-        reloadSettings();
+        if (!reloadSettings()) {
+            getLogger().severe("設定またはメッセージが不正なため BodyGuard を停止します。");
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
 
         storage = new GuardStorage(this);
         try {
+            operationLedger = new OperationLedgerStorage(this);
+            operationLedger.load();
             java.util.Map<java.util.UUID, GuardData> saved = storage.load();
             playerDataStorage = new PlayerDataStorage(this);
-            guardManager = new GuardManager(this, storage, keys, playerDataStorage);
+            guardManager = new GuardManager(this, storage, keys, playerDataStorage, operationLedger);
             guardManager.load(saved);
             registryInitialized = true;
         } catch (RuntimeException failure) {
@@ -143,15 +152,99 @@ public final class BodyGuard extends JavaPlugin {
         HandlerList.unregisterAll(this);
     }
 
-    /** Reloads user-facing configuration without rebuilding the manager. */
-    public void reloadSettings() {
+    /** Reloads config and messages as one validated transaction. */
+    public boolean reloadSettings() {
+        YamlConfiguration candidate = new YamlConfiguration();
+        try {
+            candidate.load(new java.io.File(getDataFolder(), "config.yml"));
+        } catch (Exception failure) {
+            getLogger().log(Level.SEVERE, "config.ymlの検証に失敗しました。現在の設定を維持します。", failure);
+            return false;
+        }
+        if (!validateConfiguration(candidate) || (messages != null && !messages.canLoadSafely())) {
+            getLogger().severe("config.ymlまたはmessages.ymlが不正です。現在の設定を維持します。");
+            return false;
+        }
+
         reloadConfig();
-        if (messages != null) {
-            messages.reload();
+        if (messages != null && !messages.reloadSafely()) {
+            return false;
         }
         allowedMobTypes = readAllowedMobTypes();
         if (gui != null) {
             gui.restartTasks();
+        }
+        return true;
+    }
+
+    private boolean validateConfiguration(YamlConfiguration configuration) {
+        try {
+            requireInteger(configuration, "storage.autosave-seconds", 0, 3600);
+            requireInteger(configuration, "limits.max-guards-per-player", 1, 1000);
+            requireBoolean(configuration, "guard-management.keep-chunks-loaded-while-owner-online");
+            requireInteger(configuration, "guard-management.max-loaded-chunks", 1, 1024);
+            requireInteger(configuration, "guard-management.max-loaded-chunks-per-owner", 1, 256);
+            requireInteger(configuration, "guard-management.chunk-loads-per-cycle", 1, 16);
+            requireInteger(configuration, "guard-management.search-chunks-per-cycle", 1, 256);
+            requireFinite(configuration, "follow.start-distance", 0.0, 1024.0);
+            requireFinite(configuration, "follow.teleport-distance", 1.0, 4096.0);
+            requireFinite(configuration, "follow.move-speed", 0.05, 1.5);
+            requireFinite(configuration, "teleport.max-distance", 1.0, 4096.0);
+            requireBoolean(configuration, "teleport.different-world");
+            requireString(configuration, "menu-opener.material");
+            if (Material.matchMaterial(configuration.getString("menu-opener.material", "")) == null) {
+                throw new IllegalArgumentException("menu-opener.materialが不正です");
+            }
+            requireString(configuration, "display.nameplate.mode");
+            NameplateMode.valueOf(configuration.getString("display.nameplate.mode", "NAME_HEALTH_MODE")
+                    .trim().toUpperCase(Locale.ROOT));
+            requireString(configuration, "effects.gui-sounds.success-sound");
+            Sound.valueOf(configuration.getString("effects.gui-sounds.success-sound", "")
+                    .trim().toUpperCase(Locale.ROOT));
+            requireString(configuration, "effects.gui-sounds.failure-sound");
+            Sound.valueOf(configuration.getString("effects.gui-sounds.failure-sound", "")
+                    .trim().toUpperCase(Locale.ROOT));
+            java.util.List<String> configuredMobs = configuration.getStringList("allowed-mobs");
+            if (configuredMobs.isEmpty()) throw new IllegalArgumentException("allowed-mobsが空です");
+            for (String value : configuredMobs) {
+                EntityType type = parseEntityType(value);
+                if (type == null || !isSupportedMobType(type)) {
+                    throw new IllegalArgumentException("allowed-mobsに未対応の種類があります: " + value);
+                }
+            }
+            return true;
+        } catch (RuntimeException failure) {
+            getLogger().warning("設定の検証に失敗しました: " + failure.getMessage());
+            return false;
+        }
+    }
+
+    private void requireBoolean(YamlConfiguration configuration, String path) {
+        Object value = configuration.get(path);
+        if (!(value instanceof Boolean)) throw new IllegalArgumentException(path + " はbooleanではありません");
+    }
+
+    private void requireInteger(YamlConfiguration configuration, String path, int minimum, int maximum) {
+        Object value = configuration.get(path);
+        if (!(value instanceof Number number) || number.doubleValue() != number.intValue()
+                || number.intValue() < minimum || number.intValue() > maximum) {
+            throw new IllegalArgumentException(path + " の範囲または型が不正です");
+        }
+    }
+
+    private void requireFinite(YamlConfiguration configuration, String path,
+                               double minimum, double maximum) {
+        Object value = configuration.get(path);
+        if (!(value instanceof Number number) || !Double.isFinite(number.doubleValue())
+                || number.doubleValue() < minimum || number.doubleValue() > maximum) {
+            throw new IllegalArgumentException(path + " の範囲または型が不正です");
+        }
+    }
+
+    private void requireString(YamlConfiguration configuration, String path) {
+        Object value = configuration.get(path);
+        if (!(value instanceof String string) || string.isBlank()) {
+            throw new IllegalArgumentException(path + " は文字列ではありません");
         }
     }
 
@@ -221,6 +314,14 @@ public final class BodyGuard extends JavaPlugin {
 
     public GuardManager getGuardManager() {
         return guardManager;
+    }
+
+    public OperationLedgerStorage getOperationLedger() {
+        return operationLedger;
+    }
+
+    public boolean isRegistryInitialized() {
+        return registryInitialized;
     }
 
     public int getMaxGuardsPerPlayer() {

@@ -1,17 +1,12 @@
 package plugin.test.com.bodyGuard.storage;
 
-import java.io.File;
-import java.io.IOException;
-import java.nio.file.AtomicMoveNotSupportedException;
-import java.nio.file.Files;
-import java.nio.file.StandardCopyOption;
 import java.util.HashMap;
-import java.util.Map;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.logging.Level;
 
+import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -23,18 +18,18 @@ public final class PlayerDataStorage {
         DISMISSED
     }
 
+    private static final int CURRENT_VERSION = 3;
+
     private final JavaPlugin plugin;
-    private final File file;
     private final SafeYamlFile safeFile;
-    private boolean dirty;
     private final Map<UUID, State> states = new HashMap<>();
     private final Map<UUID, UUID> companions = new HashMap<>();
     private final Map<UUID, Set<UUID>> friends = new HashMap<>();
+    private boolean dirty;
 
     public PlayerDataStorage(JavaPlugin plugin) {
         this.plugin = plugin;
-        this.file = new File(plugin.getDataFolder(), "players.yml");
-        this.safeFile = new SafeYamlFile(plugin, "players.yml");
+        this.safeFile = new SafeYamlFile(plugin, "players.yml", "players");
         load();
     }
 
@@ -42,12 +37,10 @@ public final class PlayerDataStorage {
         return playerId != null && states.containsKey(playerId);
     }
 
-    public void setState(UUID playerId, State state) {
-        if (playerId == null || state == null) {
-            return;
-        }
+    public SafeYamlFile.SaveResult setState(UUID playerId, State state) {
+        if (playerId == null || state == null) return SafeYamlFile.SaveResult.VALIDATION_FAILED;
         states.put(playerId, state);
-        save();
+        return save();
     }
 
     public UUID getCompanion(UUID ownerId) {
@@ -58,16 +51,11 @@ public final class PlayerDataStorage {
         return new HashMap<>(companions);
     }
 
-    public void setCompanion(UUID ownerId, UUID guardId) {
-        if (ownerId == null) {
-            return;
-        }
-        if (guardId == null) {
-            companions.remove(ownerId);
-        } else {
-            companions.put(ownerId, guardId);
-        }
-        save();
+    public SafeYamlFile.SaveResult setCompanion(UUID ownerId, UUID guardId) {
+        if (ownerId == null) return SafeYamlFile.SaveResult.VALIDATION_FAILED;
+        if (guardId == null) companions.remove(ownerId);
+        else companions.put(ownerId, guardId);
+        return save();
     }
 
     public boolean isFriend(UUID ownerId, UUID playerId) {
@@ -81,9 +69,7 @@ public final class PlayerDataStorage {
     }
 
     public boolean addFriend(UUID ownerId, UUID playerId) {
-        if (ownerId == null || playerId == null || ownerId.equals(playerId)) {
-            return false;
-        }
+        if (ownerId == null || playerId == null || ownerId.equals(playerId)) return false;
         boolean changed = friends.computeIfAbsent(ownerId, ignored -> new HashSet<>()).add(playerId);
         if (changed) save();
         return changed;
@@ -102,65 +88,91 @@ public final class PlayerDataStorage {
         companions.clear();
         friends.clear();
         YamlConfiguration configuration = safeFile.load();
-        for (String idText : configuration.getConfigurationSection("players") == null
-                ? java.util.Set.<String>of()
-                : configuration.getConfigurationSection("players").getKeys(false)) {
+        ConfigurationSection players = configuration.getConfigurationSection("players");
+        if (players == null) return;
+
+        for (String idText : players.getKeys(false)) {
             UUID playerId;
             try {
                 playerId = UUID.fromString(idText);
             } catch (IllegalArgumentException exception) {
-                plugin.getLogger().warning("Ignoring invalid player UUID entry: " + idText);
+                plugin.getLogger().warning("プレイヤー設定のUUIDを無視します: " + idText);
                 continue;
             }
-            String path = "players." + idText;
-            try {
-                State state = State.valueOf(configuration.getString(
-                        path + ".tutorial", "COMPLETED").toUpperCase(java.util.Locale.ROOT));
-                states.put(playerId, state);
-            } catch (IllegalArgumentException exception) {
-                plugin.getLogger().warning("Ignoring invalid tutorial state for: " + idText);
+            String path = idText;
+            String tutorial = players.getString(path + ".tutorial");
+            if (tutorial != null && !tutorial.isBlank()) {
+                try {
+                    states.put(playerId, State.valueOf(tutorial.trim().toUpperCase(java.util.Locale.ROOT)));
+                } catch (IllegalArgumentException exception) {
+                    plugin.getLogger().warning("チュートリアル設定を無視します: " + idText);
+                }
             }
-            String companionText = configuration.getString(path + ".companion");
+
+            String companionText = players.getString(path + ".companion");
             if (companionText != null && !companionText.isBlank()) {
                 try {
                     companions.put(playerId, UUID.fromString(companionText));
                 } catch (IllegalArgumentException exception) {
-                    plugin.getLogger().warning("Ignoring invalid companion UUID for "
-                            + idText + ": " + companionText);
+                    plugin.getLogger().warning("相棒UUIDを無視します: " + idText);
                 }
             }
-            for (String friendText : configuration.getStringList(path + ".friends")) {
+
+            Object rawFriends = players.get(path + ".friends");
+            if (rawFriends != null && !(rawFriends instanceof java.util.List<?>)) {
+                plugin.getLogger().warning("仲間一覧を無視します（配列ではありません）: " + idText);
+                continue;
+            }
+            for (String friendText : players.getStringList(path + ".friends")) {
                 try {
                     UUID friendId = UUID.fromString(friendText);
                     if (!friendId.equals(playerId)) {
                         friends.computeIfAbsent(playerId, ignored -> new HashSet<>()).add(friendId);
                     }
                 } catch (IllegalArgumentException exception) {
-                    plugin.getLogger().warning("Ignoring invalid friend UUID for " + idText + ": " + friendText);
+                    plugin.getLogger().warning("仲間UUIDを無視します: " + idText);
                 }
             }
         }
+        dirty = false;
     }
 
     public boolean isHealthy() { return safeFile.isHealthy(); }
+    public boolean isDirty() { return dirty; }
+    public SafeYamlFile.SaveResult getLastSaveResult() { return safeFile.getLastSaveResult(); }
+    public long getLastSaved() { return safeFile.getLastSaved(); }
+    public long getLastAttempt() { return safeFile.getLastAttempt(); }
+    public int getConsecutiveSaveFailures() { return safeFile.getConsecutiveFailures(); }
+    public String getLastFailureReason() { return safeFile.getLastFailureReason(); }
 
-    public void retrySave() { if (dirty) save(); }
+    public SafeYamlFile.SaveResult retrySave() {
+        return dirty ? save() : safeFile.getLastSaveResult();
+    }
 
-    private void save() {
+    private SafeYamlFile.SaveResult save() {
         dirty = true;
         YamlConfiguration configuration = new YamlConfiguration();
-        configuration.set("version", 2);
+        configuration.set("version", CURRENT_VERSION);
         configuration.createSection("players");
-        for (Map.Entry<UUID, State> entry : states.entrySet()) {
-            configuration.set("players." + entry.getKey() + ".tutorial", entry.getValue().name());
+        Set<UUID> playerIds = new HashSet<>();
+        playerIds.addAll(states.keySet());
+        playerIds.addAll(companions.keySet());
+        playerIds.addAll(friends.keySet());
+        configuration.set("record-count", playerIds.size());
+        for (UUID playerId : playerIds) {
+            String path = "players." + playerId;
+            State state = states.get(playerId);
+            if (state != null) configuration.set(path + ".tutorial", state.name());
+            UUID companion = companions.get(playerId);
+            if (companion != null) configuration.set(path + ".companion", companion.toString());
+            Set<UUID> friendSet = friends.get(playerId);
+            if (friendSet != null) {
+                configuration.set(path + ".friends", friendSet.stream()
+                        .map(UUID::toString).sorted().toList());
+            }
         }
-        for (Map.Entry<UUID, UUID> entry : companions.entrySet()) {
-            configuration.set("players." + entry.getKey() + ".companion", entry.getValue().toString());
-        }
-        for (Map.Entry<UUID, Set<UUID>> entry : friends.entrySet()) {
-            configuration.set("players." + entry.getKey() + ".friends",
-                    entry.getValue().stream().map(UUID::toString).sorted().toList());
-        }
-        if (safeFile.save(configuration)) dirty = false;
+        SafeYamlFile.SaveResult result = safeFile.saveWithResult(configuration);
+        if (result == SafeYamlFile.SaveResult.SUCCESS) dirty = false;
+        return result;
     }
 }

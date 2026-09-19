@@ -13,6 +13,14 @@ guard-management:
   # Keep guards belonging to online owners loaded so health, location and actions
   # remain available. Many guards spread across many chunks will use more memory.
   keep-chunks-loaded-while-owner-online: true
+  # Global number of chunk tickets BodyGuard may hold at once.
+  max-loaded-chunks: 64
+  # Maximum distinct guard chunks assigned to one online owner.
+  max-loaded-chunks-per-owner: 16
+  # Maximum new chunk tickets requested during one management cycle.
+  chunk-loads-per-cycle: 2
+  # Maximum already-loaded chunks inspected for a missing guard per cycle.
+  search-chunks-per-cycle: 32
 
 # Right-click this item in the main hand to open the BodyGuard menu.
 # Any valid Minecraft material name can be used, for example: COMPASS, BLAZE_ROD.
