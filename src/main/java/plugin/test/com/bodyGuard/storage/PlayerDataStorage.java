@@ -26,6 +26,7 @@ public final class PlayerDataStorage {
     private final Map<UUID, UUID> companions = new HashMap<>();
     private final Map<UUID, Set<UUID>> friends = new HashMap<>();
     private boolean dirty;
+    private SafeYamlFile.SaveResult lastMutationResult = SafeYamlFile.SaveResult.SUCCESS;
 
     public PlayerDataStorage(JavaPlugin plugin) {
         this.plugin = plugin;
@@ -38,10 +39,14 @@ public final class PlayerDataStorage {
     }
 
     public SafeYamlFile.SaveResult setState(UUID playerId, State state) {
-        if (playerId == null || state == null) return SafeYamlFile.SaveResult.VALIDATION_FAILED;
+        if (playerId == null || state == null) {
+            lastMutationResult = SafeYamlFile.SaveResult.VALIDATION_FAILED;
+            return lastMutationResult;
+        }
         State previous = states.get(playerId);
         states.put(playerId, state);
         SafeYamlFile.SaveResult result = save();
+        lastMutationResult = result;
         if (result != SafeYamlFile.SaveResult.SUCCESS) {
             if (previous == null) states.remove(playerId);
             else states.put(playerId, previous);
@@ -58,11 +63,15 @@ public final class PlayerDataStorage {
     }
 
     public SafeYamlFile.SaveResult setCompanion(UUID ownerId, UUID guardId) {
-        if (ownerId == null) return SafeYamlFile.SaveResult.VALIDATION_FAILED;
+        if (ownerId == null) {
+            lastMutationResult = SafeYamlFile.SaveResult.VALIDATION_FAILED;
+            return lastMutationResult;
+        }
         UUID previous = companions.get(ownerId);
         if (guardId == null) companions.remove(ownerId);
         else companions.put(ownerId, guardId);
         SafeYamlFile.SaveResult result = save();
+        lastMutationResult = result;
         if (result != SafeYamlFile.SaveResult.SUCCESS) {
             if (previous == null) companions.remove(ownerId);
             else companions.put(ownerId, previous);
@@ -81,9 +90,16 @@ public final class PlayerDataStorage {
     }
 
     public boolean addFriend(UUID ownerId, UUID playerId) {
-        if (ownerId == null || playerId == null || ownerId.equals(playerId)) return false;
+        if (ownerId == null || playerId == null || ownerId.equals(playerId)) {
+            lastMutationResult = SafeYamlFile.SaveResult.VALIDATION_FAILED;
+            return false;
+        }
         boolean changed = friends.computeIfAbsent(ownerId, ignored -> new HashSet<>()).add(playerId);
-        if (changed && save() != SafeYamlFile.SaveResult.SUCCESS) {
+        lastMutationResult = SafeYamlFile.SaveResult.SUCCESS;
+        if (changed) {
+            lastMutationResult = save();
+        }
+        if (changed && lastMutationResult != SafeYamlFile.SaveResult.SUCCESS) {
             friends.getOrDefault(ownerId, new HashSet<>()).remove(playerId);
             if (friends.getOrDefault(ownerId, Set.of()).isEmpty()) friends.remove(ownerId);
         }
@@ -94,7 +110,11 @@ public final class PlayerDataStorage {
         Set<UUID> entries = friends.get(ownerId);
         boolean changed = entries != null && entries.remove(playerId);
         if (entries != null && entries.isEmpty()) friends.remove(ownerId);
-        if (changed && save() != SafeYamlFile.SaveResult.SUCCESS) {
+        lastMutationResult = SafeYamlFile.SaveResult.SUCCESS;
+        if (changed) {
+            lastMutationResult = save();
+        }
+        if (changed && lastMutationResult != SafeYamlFile.SaveResult.SUCCESS) {
             friends.computeIfAbsent(ownerId, ignored -> new HashSet<>()).add(playerId);
         }
         return changed;
@@ -157,6 +177,7 @@ public final class PlayerDataStorage {
     public boolean isHealthy() { return safeFile.isHealthy(); }
     public boolean isDirty() { return dirty; }
     public SafeYamlFile.SaveResult getLastSaveResult() { return safeFile.getLastSaveResult(); }
+    public SafeYamlFile.SaveResult getLastMutationResult() { return lastMutationResult; }
     public long getLastSaved() { return safeFile.getLastSaved(); }
     public long getLastAttempt() { return safeFile.getLastAttempt(); }
     public int getConsecutiveSaveFailures() { return safeFile.getConsecutiveFailures(); }

@@ -145,6 +145,7 @@ public final class GuardManager {
 
     public GuardData.Status status(GuardData data) {
         if (data == null) return GuardData.Status.QUARANTINED;
+        if (data.isQuarantined()) return GuardData.Status.QUARANTINED;
         switch (data.getContractStatus()) {
             case RELEASE_PENDING -> { return GuardData.Status.RELEASE_PENDING; }
             case RELEASED -> { return GuardData.Status.RELEASED; }
@@ -153,7 +154,6 @@ public final class GuardManager {
             case DEAD -> { return GuardData.Status.DEAD; }
             case ACTIVE -> { }
         }
-        if (data.isQuarantined()) return GuardData.Status.QUARANTINED;
         Entity entity = Bukkit.getEntity(data.getGuardId());
         if (entity != null) {
             if (isEntityConsistent(data, entity) && EntityUtil.isAlive(entity)) {
@@ -251,6 +251,13 @@ public final class GuardManager {
 
         GuardData previous = guards.get(data.getGuardId());
         if (previous != null && !previous.getOwnerId().equals(owner.getUniqueId())) return null;
+        if (previous != null && previous.isQuarantined()) return null;
+        if (previous != null && previous.getContractStatus() == GuardData.ContractStatus.RELEASED) {
+            // An explicit re-recruit may reuse the UUID only after any stale
+            // released PDC has been reconciled and removed.
+            reconcileRetiredEntity(previous, mob);
+            if (isMarked(mob.getPersistentDataContainer())) return null;
+        }
         if (previous != null && previous.getContractStatus() != GuardData.ContractStatus.RELEASED) {
             // A pending, deleted, or dead contract is a tombstone. It must not be
             // reused merely because an old PDC is still attached to the entity.
@@ -289,14 +296,14 @@ public final class GuardManager {
         }
         UUID entityId = entity.getUniqueId();
         GuardData previous = guards.get(entityId);
-        if (previous != null && previous.isRetired()) {
-            reconcileRetiredEntity(previous, mob);
-            return null;
-        }
         if (previous != null && previous.isQuarantined()) {
             // A contradictory record must remain visible to administrators until
             // it is repaired. Never replace it with a reconstructed PDC record.
             plugin.getLogger().warning("隔離中の護衛をPDCから再構成しません: " + entityId);
+            return null;
+        }
+        if (previous != null && previous.isRetired()) {
+            reconcileRetiredEntity(previous, mob);
             return null;
         }
 
@@ -582,6 +589,10 @@ public final class GuardManager {
 
     public boolean removeFriend(UUID ownerId, UUID playerId) {
         return playerDataStorage.removeFriend(ownerId, playerId);
+    }
+
+    public SafeYamlFile.SaveResult getPlayerDataMutationResult() {
+        return playerDataStorage.getLastMutationResult();
     }
 
     public Mob getLoadedMob(GuardData data) {
@@ -959,6 +970,10 @@ public final class GuardManager {
 
     public void cleanup() {
         for (GuardData data : new ArrayList<>(guards.values())) {
+            if (data.isQuarantined()) {
+                searchOffsets.remove(data.getGuardId());
+                continue;
+            }
             if (data.isRetired() && data.isOperationCompleted()) {
                 searchOffsets.remove(data.getGuardId());
                 continue;
@@ -1500,7 +1515,11 @@ public final class GuardManager {
                 checking, missing, quarantined, releasePending, deletePending, completed,
                 managedChunks.size(), plugin.getManagedChunkLimit(),
                 storage.getLastSaveResult(), storage.getLastSaved(),
-                storage.getLastFailureReason(), operationLedger == null ? 0 : operationLedger.size());
+                storage.getLastFailureReason(),
+                playerDataStorage.getLastSaveResult(), playerDataStorage.getLastFailureReason(),
+                operationLedger == null ? SafeYamlFile.SaveResult.SUCCESS : operationLedger.getLastSaveResult(),
+                operationLedger == null ? null : operationLedger.getLastFailureReason(),
+                operationLedger == null ? 0 : operationLedger.size());
     }
 
     public record DiagnosticSnapshot(int active, int available, int unloaded,
@@ -1508,7 +1527,12 @@ public final class GuardManager {
                                      int quarantined, int releasePending, int deletePending,
                                      int completed, int managedChunks, int maxManagedChunks,
                                      SafeYamlFile.SaveResult lastSaveResult, long lastSaved,
-                                     String lastFailureReason, int ledgerEntries) {
+                                     String lastFailureReason,
+                                     SafeYamlFile.SaveResult playerSaveResult,
+                                     String playerFailureReason,
+                                     SafeYamlFile.SaveResult ledgerSaveResult,
+                                     String ledgerFailureReason,
+                                     int ledgerEntries) {
     }
 
     private SavedPosition readSavedAnchorFromPdc(PersistentDataContainer pdc) {

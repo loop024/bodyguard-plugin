@@ -45,6 +45,7 @@ import plugin.test.com.bodyGuard.guard.GuardManager;
 import plugin.test.com.bodyGuard.guard.GuardMode;
 import plugin.test.com.bodyGuard.storage.PlayerDataStorage;
 import plugin.test.com.bodyGuard.storage.PlayerDataStorage.State;
+import plugin.test.com.bodyGuard.storage.SafeYamlFile;
 import plugin.test.com.bodyGuard.util.EntityUtil;
 import plugin.test.com.bodyGuard.util.LocationUtil;
 import plugin.test.com.bodyGuard.util.MessageUtil;
@@ -841,7 +842,12 @@ public final class BodyGuardGui implements Listener {
     private void handleTutorialClick(Player player, BodyGuardMenuHolder holder, int slot) {
         int page = holder.getPage();
         if (page == 0 && slot == 13 && hasPermission(player, "bodyguard.summon")) {
-            playerDataStorage.setState(player.getUniqueId(), State.COMPLETED);
+            if (playerDataStorage.setState(player.getUniqueId(), State.COMPLETED)
+                    != SafeYamlFile.SaveResult.SUCCESS) {
+                showResult(player, "storage-unavailable",
+                        "&c案内状態を保存できなかったため、もう一度試してください。", Map.of(), false);
+                return;
+            }
             transition(player, () -> openSummon(player, 0, BodyGuardMenuHolder.GuardFilter.ALL,
                     BodyGuardMenuHolder.GuardSort.STANDARD));
             return;
@@ -869,7 +875,12 @@ public final class BodyGuardGui implements Listener {
     }
 
     private void finishTutorial(Player player, BodyGuardMenuHolder holder, State state) {
-        playerDataStorage.setState(player.getUniqueId(), state);
+        if (playerDataStorage.setState(player.getUniqueId(), state)
+                != SafeYamlFile.SaveResult.SUCCESS) {
+            showResult(player, "storage-unavailable",
+                    "&c案内状態を保存できなかったため、今回は変更を保存していません。", Map.of(), false);
+            return;
+        }
         transition(player, () -> {
             if (holder.isReleaseAll()) {
                 openCommandMenu(player);

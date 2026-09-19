@@ -128,6 +128,12 @@ public final class BodyGuardCommand implements CommandExecutor {
         boolean add = args[1].equalsIgnoreCase("add");
         boolean changed = add ? manager.addFriend(owner.getUniqueId(), target.getUniqueId())
                 : manager.removeFriend(owner.getUniqueId(), target.getUniqueId());
+        if (!changed && manager.getPlayerDataMutationResult()
+                != plugin.test.com.bodyGuard.storage.SafeYamlFile.SaveResult.SUCCESS) {
+            messages.send(sender, "storage-unavailable",
+                    "&c仲間設定を保存できなかったため、変更していません。再試行してください。");
+            return true;
+        }
         messages.send(sender, changed ? (add ? "friend-added" : "friend-removed")
                         : (add ? "friend-already-added" : "friend-not-added"),
                 changed ? (add ? "&a{player}を仲間に追加しました。護衛は攻撃しません。" : "&e{player}を仲間から外しました。")
@@ -535,8 +541,10 @@ public final class BodyGuardCommand implements CommandExecutor {
                         "completed", String.valueOf(snapshot.completed()),
                         "quarantine", String.valueOf(snapshot.quarantined())));
         messages.send(sender, "status-storage",
-                "&7保存: &f{result} &7/ 最終成功: &f{saved} &7/ 操作台帳: &f{ledger}件",
+                "&7護衛保存: &f{result} &7/ プレイヤー保存: &f{players} &7/ 台帳保存: &f{ledgerResult} &7/ 最終成功: &f{saved} &7/ 台帳: &f{ledger}件",
                 Map.of("result", snapshot.lastSaveResult().name(),
+                        "players", snapshot.playerSaveResult().name(),
+                        "ledgerResult", snapshot.ledgerSaveResult().name(),
                         "saved", snapshot.lastSaved() <= 0 ? "記録なし"
                                 : String.valueOf(snapshot.lastSaved()),
                         "ledger", String.valueOf(snapshot.ledgerEntries())));
@@ -548,6 +556,14 @@ public final class BodyGuardCommand implements CommandExecutor {
             if (snapshot.lastFailureReason() != null) {
                 messages.send(sender, "status-failure", "&c最後の保存失敗: &f{reason}",
                         Map.of("reason", snapshot.lastFailureReason()));
+            }
+            if (snapshot.playerFailureReason() != null) {
+                messages.send(sender, "status-failure", "&cプレイヤー設定の保存失敗: &f{reason}",
+                        Map.of("reason", snapshot.playerFailureReason()));
+            }
+            if (snapshot.ledgerFailureReason() != null) {
+                messages.send(sender, "status-failure", "&c操作台帳の保存失敗: &f{reason}",
+                        Map.of("reason", snapshot.ledgerFailureReason()));
             }
         }
         return true;

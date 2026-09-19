@@ -164,6 +164,7 @@ public final class OperationLedgerStorage {
     public boolean isHealthy() { return safeFile.isHealthy() && !uncertain; }
     public SafeYamlFile.SaveResult getLastSaveResult() { return safeFile.getLastSaveResult(); }
     public long getLastSaved() { return safeFile.getLastSaved(); }
+    public String getLastFailureReason() { return safeFile.getLastFailureReason(); }
     public int size() { return entries.size(); }
 
     private SafeYamlFile.SaveResult save() {
