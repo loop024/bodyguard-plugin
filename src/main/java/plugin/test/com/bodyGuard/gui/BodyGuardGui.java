@@ -1227,8 +1227,10 @@ public final class BodyGuardGui implements Listener {
         }
         List<String> choices = new ArrayList<>();
         choices.add("owner");
-        choices.addAll(plugin.getRoleDefinitions().stream()
-                .map(plugin.test.com.bodyGuard.guard.RoleDefinition::id).toList());
+        if (plugin.isRoleProtectionEnabled()) {
+            choices.addAll(plugin.getRoleDefinitions().stream()
+                    .map(plugin.test.com.bodyGuard.guard.RoleDefinition::id).toList());
+        }
         String current = data.isRoleProtection() ? data.getRoleId() : "owner";
         int currentIndex = choices.indexOf(current);
         String next = choices.get((currentIndex < 0 ? 0 : currentIndex + 1) % choices.size());

@@ -67,7 +67,7 @@
 | `/bg friend add <プレイヤー>` | 指定プレイヤーを、自分の護衛の攻撃対象から除外 |
 | `/bg friend remove <プレイヤー>` | 指定プレイヤーを仲間から外す |
 | `/bg friend list` | 攻撃対象から除外中の仲間を表示 |
-| `/bg protect <owner\|役職ID\|status>` | 見ている自分の護衛の保護対象を設定・確認 |
+| `/bg protect <owner / 役職ID / status>` | 見ている自分の護衛の保護対象を設定・確認 |
 | `/bg reload` | 設定を再読み込み（管理者） |
 
 `recruit`、`release`、`mode`、`rename` は、既存コマンドの仕様どおり、5～10ブロック程度の範囲で対象Mobを見て実行してください。

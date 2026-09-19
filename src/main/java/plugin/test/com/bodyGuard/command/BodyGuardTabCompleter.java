@@ -50,8 +50,10 @@ public final class BodyGuardTabCompleter implements TabCompleter {
             List<String> choices = new ArrayList<>();
             choices.add("owner");
             choices.add("status");
-            choices.addAll(plugin.getRoleDefinitions().stream()
-                    .map(plugin.test.com.bodyGuard.guard.RoleDefinition::id).toList());
+            if (plugin.isRoleProtectionEnabled()) {
+                choices.addAll(plugin.getRoleDefinitions().stream()
+                        .map(plugin.test.com.bodyGuard.guard.RoleDefinition::id).toList());
+            }
             return matchingInOrder(args[1], choices);
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("friend")) {

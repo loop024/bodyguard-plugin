@@ -1003,8 +1003,17 @@ public final class GuardManager {
 
     /** Missing role keys are repaired from YAML; contradictory present keys are unsafe. */
     private boolean isProtectionPdcConsistent(GuardData data, PersistentDataContainer pdc) {
+        Set<NamespacedKey> present = pdc.getKeys();
+        boolean hasKind = present.contains(keys.protectionKind());
+        boolean hasRole = present.contains(keys.roleId());
+        boolean hasSelected = present.contains(keys.selectedTargetUuid());
+        boolean hasRevision = present.contains(keys.selectionRevision());
+        if (!hasKind) {
+            return !hasRole && !hasSelected && !hasRevision;
+        }
+        if (!pdc.has(keys.protectionKind(), PersistentDataType.STRING)) return false;
         String kindText = getString(pdc, keys.protectionKind());
-        if (kindText == null || kindText.isBlank()) return true;
+        if (kindText == null || kindText.isBlank()) return false;
         GuardData.ProtectionKind kind;
         try {
             kind = GuardData.ProtectionKind.valueOf(kindText.trim().toUpperCase(
@@ -1013,15 +1022,22 @@ public final class GuardManager {
             return false;
         }
         if (kind != data.getProtectionKind()) return false;
-        if (kind == GuardData.ProtectionKind.ROLE
-                && !Objects.equals(data.getRoleId(), getString(pdc, keys.roleId()))) {
-            return false;
-        }
-        if (kind == GuardData.ProtectionKind.OWNER
-                && getString(pdc, keys.roleId()) != null) {
+        if (kind == GuardData.ProtectionKind.ROLE) {
+            if (!hasRole || !pdc.has(keys.roleId(), PersistentDataType.STRING)
+                    || !Objects.equals(data.getRoleId(), getString(pdc, keys.roleId()))) {
+                return false;
+            }
+            if (hasSelected && !pdc.has(keys.selectedTargetUuid(), PersistentDataType.STRING)) {
+                return false;
+            }
+            if (hasRevision && !pdc.has(keys.selectionRevision(), PersistentDataType.LONG)) {
+                return false;
+            }
+        } else if (hasRole || hasSelected || hasRevision) {
             return false;
         }
         String selectedText = getString(pdc, keys.selectedTargetUuid());
+        if (hasSelected && (selectedText == null || selectedText.isBlank())) return false;
         UUID selected = parseUuid(selectedText);
         if (selectedText != null && selected == null) return false;
         if (!Objects.equals(data.getSelectedTargetUuid(), selected)) return false;
