@@ -299,7 +299,7 @@ ArmorStandなどの補助Entityは作らないため、チャンクのアンロ�
 | `effects.gui-sounds.success-pitch` | `1.25` | 成功音の音程（0.5～2） |
 | `effects.gui-sounds.failure-pitch` | `0.75` | 失敗音の音程（0.5～2） |
 
-新しい数値設定が不正または範囲外の場合は、プラグイン内の既定値へ戻します。設定再読み込みは `/bg reload` で行えます。既存の `messages.yml` にないキーも同梱フォールバックで動作します。Mob名は `mob-names`、召喚候補の説明は `mob-features` で変更できます。
+新しい数値設定が不正または範囲外の場合は、旧設定を維持して反映しません。設定再読み込みは `/bg reload` で行えます。既存の `messages.yml` にないキーも同梱フォールバックで動作します。Mob名は `mob-names`、召喚候補の説明は `mob-features` で変更できます。
 
 ## 初期対応Mob
 
@@ -309,7 +309,7 @@ Zombie、Skeleton、Husk、Stray、Drowned、Bogged、Wither Skeleton、Zombifie
 
 ## データ保存
 
-護衛EntityにはPersistentDataContainerでBodyGuard識別情報、所有者UUID、護衛UUID、種類、モード、名前、名前番号、お気に入り状態、契約世代を保存します。`guards.yml` には管理情報、名前番号、待機・警備地点、契約状態、最終確認位置を保存し、`operations.yml` には解除・完全削除・死亡の受理と完了を独立して保存します。壊れた個別レコードは `quarantine.yml` に保全できた場合だけ隔離します。所有者ごとの相棒UUID、仲間、チュートリアル状態は `players.yml` に保存します。位置にはワールド名とワールドUUIDを保存し、UUIDを優先して読み込みます。同名の別ワールドへは自動接続しません。Entityが未読み込みの間は、表示で取得できないHP・距離を推測しません。
+護衛EntityにはPersistentDataContainerでBodyGuard識別情報、所有者UUID、護衛UUID、種類、モード、名前、名前番号、お気に入り状態、契約世代を保存します。`guards.yml` には管理情報、名前番号、待機・警備地点、契約状態、最終確認位置を保存し、`operations.yml` には解除・完全削除・死亡の受理と完了を独立して保存します。壊れた個別レコードは `quarantine.yml` に保全できた場合だけ隔離します。所有者ごとの相棒UUID、仲間、チュートリアル状態は `players.yml` に保存します。位置にはワールド名とワールドUUIDを保存し、解決にはワールドUUIDだけを使います。UUIDがない位置は未解決のまま保持し、同名の別ワールドへは自動接続しません。Entityが未読み込みの間は、表示で取得できないHP・距離を推測しません。
 
 `guards.yml` の保存versionは5、`players.yml` は3、`operations.yml` は1です。未対応の新しいversionは上書きせず起動を停止します。既存の古い設定にない項目は安全な既定値で補完しますが、型が不正な項目は保全して読み飛ばします。
 

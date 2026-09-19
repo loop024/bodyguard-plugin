@@ -97,8 +97,7 @@ public final class GuardManager {
             guards.putAll(savedGuards);
         }
         if (operationLedger != null) {
-            operationLedger.applyTo(guards);
-            if (guards.values().stream().anyMatch(GuardData::isQuarantined)) {
+            if (operationLedger.applyTo(guards)) {
                 dirty = true;
             }
         }
@@ -112,10 +111,24 @@ public final class GuardManager {
         // registry and must be persisted on the normal startup reconciliation path.
     }
 
-    /** Saves only when persistent guard data changed since the previous successful save. */
-    public void save() {
-        playerDataStorage.retrySave();
-        if (dirty) persistRegistry();
+    /** Saves changed player and guard data and reports whether both outcomes are known-good. */
+    public boolean save() {
+        boolean playerSaved;
+        try {
+            playerSaved = playerDataStorage.retrySave()
+                    == SafeYamlFile.SaveResult.SUCCESS;
+        } catch (RuntimeException failure) {
+            reportFailure("player-save", null, failure);
+            playerSaved = false;
+        }
+        boolean registrySaved;
+        try {
+            registrySaved = !dirty || persistRegistry();
+        } catch (RuntimeException failure) {
+            reportFailure("registry-save", null, failure);
+            registrySaved = false;
+        }
+        return playerSaved && registrySaved;
     }
 
     private boolean persistRegistry() {
@@ -129,9 +142,8 @@ public final class GuardManager {
     }
 
     /** Retry failed writes independently of the configured autosave interval. */
-    public void retryFailedSaves() {
-        playerDataStorage.retrySave();
-        if (dirty) persistRegistry();
+    public boolean retryFailedSaves() {
+        return save();
     }
 
     public boolean persistNow() {
@@ -268,6 +280,13 @@ public final class GuardManager {
 
         GuardData previous = guards.get(data.getGuardId());
         if (previous != null && !previous.getOwnerId().equals(owner.getUniqueId())) return null;
+        if (previous == null && isMarked(mob.getPersistentDataContainer())) {
+            // A marked Entity without a registry record is not safe to transfer
+            // or overwrite. The PDC alone cannot prove that an old contract ended.
+            plugin.getLogger().warning("レジストリにないBodyGuard PDC付きMobを勧誘しません: "
+                    + data.getGuardId());
+            return null;
+        }
         if (previous != null && previous.isQuarantined()) return null;
         if (previous != null && previous.getContractStatus() == GuardData.ContractStatus.RELEASED) {
             // An explicit re-recruit may reuse the UUID only after any stale
@@ -280,7 +299,11 @@ public final class GuardManager {
             // reused merely because an old PDC is still attached to the entity.
             return null;
         }
-        if (previous != null) data.setContractGeneration(previous.getContractGeneration() + 1L);
+        if (previous != null) {
+            long previousGeneration = previous.getContractGeneration();
+            data.setContractGeneration(previousGeneration == Long.MAX_VALUE
+                    ? Long.MAX_VALUE : previousGeneration + 1L);
+        }
         else if (operationLedger != null) {
             data.setContractGeneration(operationLedger.nextContractGeneration(data.getGuardId()));
         }
@@ -823,9 +846,14 @@ public final class GuardManager {
         }
         if (teleported > 0) {
             try {
-                save();
+                if (!save()) {
+                    reportFailure("teleport-save", owner.getUniqueId(),
+                            new IllegalStateException("呼び戻し後の保存結果を確認できません"));
+                    teleported = 0;
+                }
             } catch (RuntimeException failure) {
                 reportFailure("teleport-save", owner.getUniqueId(), failure);
+                teleported = 0;
             }
         }
         return teleported;
@@ -899,7 +927,16 @@ public final class GuardManager {
         boolean moved = teleportGuard(ownerId, guardId,
                 guardId == null ? 0 : Math.floorMod(guardId.hashCode(), 13));
         if (moved) {
-            save();
+            try {
+                if (!save()) {
+                    reportFailure("teleport-save", guardId,
+                            new IllegalStateException("呼び戻し後の保存結果を確認できません"));
+                    return false;
+                }
+            } catch (RuntimeException failure) {
+                reportFailure("teleport-save", guardId, failure);
+                return false;
+            }
         }
         return moved;
     }
@@ -1734,11 +1771,6 @@ public final class GuardManager {
             return null;
         }
         return new SavedPosition(worldId, worldName == null ? "" : worldName, x, y, z, 0.0f, 0.0f);
-    }
-
-    private Location readAnchorFromPdc(PersistentDataContainer pdc) {
-        SavedPosition saved = readSavedAnchorFromPdc(pdc);
-        return saved == null ? null : saved.resolve();
     }
 
     private int nextNameNumber(UUID ownerId, EntityType type) {

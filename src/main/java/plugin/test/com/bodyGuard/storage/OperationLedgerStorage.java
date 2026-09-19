@@ -131,8 +131,9 @@ public final class OperationLedgerStorage {
     }
 
     /** Re-applies accepted decisions after a registry backup has been restored. */
-    public void applyTo(Map<UUID, GuardData> guards) {
-        if (guards == null) return;
+    public boolean applyTo(Map<UUID, GuardData> guards) {
+        if (guards == null) return false;
+        boolean changed = false;
         for (Entry entry : entries.values()) {
             GuardData data = guards.get(entry.guardId());
             if (data == null || !entry.ownerId().equals(data.getOwnerId())
@@ -143,14 +144,20 @@ public final class OperationLedgerStorage {
             }
             if (data.getOperationId() == null) {
                 data.beginOperation(entry.operationId(), entry.type(), entry.acceptedAt());
+                changed = true;
             } else if (!entry.operationId().equals(data.getOperationId())
                     || data.getOperationType() != entry.type()
                     || data.getOperationAcceptedAt() != entry.acceptedAt()) {
                 data.markQuarantined("操作台帳と護衛データの操作IDが一致しません");
+                changed = true;
                 continue;
             }
-            if (entry.completed()) data.completeOperation(entry.completedAt());
+            if (entry.completed() && data.getOperationCompletedAt() != entry.completedAt()) {
+                data.completeOperation(entry.completedAt());
+                changed = true;
+            }
         }
+        return changed;
     }
 
     public Collection<Entry> getEntries() {
