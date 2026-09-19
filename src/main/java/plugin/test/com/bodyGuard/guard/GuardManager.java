@@ -167,7 +167,7 @@ public final class GuardManager {
             case DEAD -> { return GuardData.Status.DEAD; }
             case ACTIVE -> { }
         }
-        Entity entity = Bukkit.getEntity(data.getGuardId());
+        Entity entity = findLoadedEntityForRead(data);
         if (entity != null) {
             if (isEntityConsistent(data, entity) && EntityUtil.isAlive(entity)) {
                 return GuardData.Status.AVAILABLE;
@@ -671,7 +671,22 @@ public final class GuardManager {
     private Entity findLoadedEntityForRead(GuardData data) {
         if (data == null) return null;
         Entity entity = Bukkit.getEntity(data.getGuardId());
-        return entity != null && entity.isValid() ? entity : null;
+        if (entity != null && entity.isValid()) return entity;
+        // The global UUID index can lag behind an already loaded chunk. Inspect
+        // only the recorded chunk here; display and commands must not load it.
+        SavedPosition last = data.getSavedLast();
+        if (last == null || last.worldId() == null) return null;
+        World world = Bukkit.getWorld(last.worldId());
+        if (world == null) return null;
+        int x = (int) Math.floor(last.x()) >> 4;
+        int z = (int) Math.floor(last.z()) >> 4;
+        if (!world.isChunkLoaded(x, z)) return null;
+        for (Entity candidate : world.getChunkAt(x, z).getEntities()) {
+            if (data.getGuardId().equals(candidate.getUniqueId()) && candidate.isValid()) {
+                return candidate;
+            }
+        }
+        return null;
     }
 
     private boolean isEntityConsistent(GuardData data, Entity entity) {
@@ -1302,7 +1317,6 @@ public final class GuardManager {
                 Player owner = Bukkit.getPlayer(data.getOwnerId());
                 GuardData.Status currentStatus = status(data);
                 if (owner != null && owner.isOnline() && data.isActiveContract()
-                        && currentStatus != GuardData.Status.MISSING
                         && currentStatus != GuardData.Status.QUARANTINED
                         && !data.isQuarantined()) {
                     byOwner.computeIfAbsent(data.getOwnerId(), ignored -> new ArrayList<>()).add(data);
