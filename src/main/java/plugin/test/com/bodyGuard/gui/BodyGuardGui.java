@@ -806,7 +806,7 @@ public final class BodyGuardGui implements Listener {
             }
         }
         showCommandResult(player, "gui-command-mode-result",
-                "&a成功: {changed}体 &7/ &8未読み込み: {unavailable}体 &7/ &c失敗: {failed}体 &7（{mode}）",
+                "&a変更: {changed}体 &7/ &8操作不可: {unavailable}体 &7/ &e未変更: {failed}体 &7（{mode}）",
                 changed, before.unavailable(), before.available() - changed, Map.of("mode", mode.japaneseName()));
     }
 
@@ -818,7 +818,7 @@ public final class BodyGuardGui implements Listener {
         CommandCounts before = commandCounts(player);
         int changed = manager.teleportGuards(player);
         showCommandResult(player, "gui-command-recall-result",
-                "&a成功: {changed}体 &7/ &8未読み込み: {unavailable}体 &7/ &c失敗: {failed}体",
+                "&a移動: {changed}体 &7/ &8操作不可: {unavailable}体 &7/ &e未移動: {failed}体",
                 changed, before.unavailable(), before.available() - changed, Map.of());
     }
 
@@ -830,7 +830,7 @@ public final class BodyGuardGui implements Listener {
         CommandCounts before = commandCounts(player);
         int changed = manager.healGuards(player);
         showCommandResult(player, "gui-command-heal-result",
-                "&a成功: {changed}体 &7/ &8未読み込み: {unavailable}体 &7/ &e全回復済み・対象外: {failed}体",
+                "&a回復: {changed}体 &7/ &8操作不可: {unavailable}体 &7/ &e全回復済み・対象外: {failed}体",
                 changed, before.unavailable(), before.available() - changed, Map.of());
     }
 
@@ -1774,8 +1774,8 @@ public final class BodyGuardGui implements Listener {
                 .withZone(java.time.ZoneId.systemDefault()).format(java.time.Instant.ofEpochMilli(data.getLastSeen()))));
         lore.add(switch (manager.status(data)) {
             case WORLD_UNAVAILABLE -> "§e管理者にワールドの読み込みを依頼してください。";
-            case MISSING -> "§e最終位置を確認し、不要なら詳細から契約解除してください。";
-            case UNLOADED -> "§7最終位置に近づくと再確認できます。";
+            case MISSING -> "§e最終位置で確認できません。近くを探し、不要なら契約解除してください。";
+            case UNLOADED -> "§7最終位置に近づくと再確認できます。チャンク維持の上限・設定も確認してください。";
             default -> "§7少し待って「一覧を整理」を押してください。";
         });
     }

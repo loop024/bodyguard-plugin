@@ -120,9 +120,9 @@ gui-favorite-added: "&a{name}をお気に入りに登録しました。"
 gui-favorite-removed: "&e{name}のお気に入りを解除しました。"
 gui-companion-set: "&a{name}を相棒に設定しました。"
 gui-companion-removed: "&e相棒設定を解除しました。"
-gui-command-mode-result: "&a成功: {changed}体 &7/ &8未読み込み: {unavailable}体 &7/ &c失敗: {failed}体 &7（{mode}）"
-gui-command-recall-result: "&a成功: {changed}体 &7/ &8未読み込み: {unavailable}体 &7/ &c失敗: {failed}体"
-gui-command-heal-result: "&a成功: {changed}体 &7/ &8未読み込み: {unavailable}体 &7/ &e全回復済み・対象外: {failed}体"
+gui-command-mode-result: "&a変更: {changed}体 &7/ &8操作不可: {unavailable}体 &7/ &e未変更: {failed}体 &7（{mode}）"
+gui-command-recall-result: "&a移動: {changed}体 &7/ &8操作不可: {unavailable}体 &7/ &e未移動: {failed}体"
+gui-command-heal-result: "&a回復: {changed}体 &7/ &8操作不可: {unavailable}体 &7/ &e全回復済み・対象外: {failed}体"
 
 gui:
   command-title: "&3護衛司令メニュー"
