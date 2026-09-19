@@ -155,7 +155,7 @@ public final class GuardStorage {
             throw new IllegalArgumentException("操作IDと操作種類が片方だけ設定されています");
         }
         if (operationId == null) {
-            if (acceptedAt != 0L || completedAt != 0L) {
+            if (acceptedAt != 0L || (completedAt != 0L && data.isActiveContract())) {
                 throw new IllegalArgumentException("操作情報がないのに時刻があります");
             }
             return;

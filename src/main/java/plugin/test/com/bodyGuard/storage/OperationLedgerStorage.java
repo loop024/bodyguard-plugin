@@ -161,6 +161,18 @@ public final class OperationLedgerStorage {
         return operationId == null ? null : entries.get(operationId);
     }
 
+    /** Returns a generation that is newer than every recorded operation for a guard UUID. */
+    public long nextContractGeneration(UUID guardId) {
+        if (guardId == null) return 1L;
+        long highest = 0L;
+        for (Entry entry : entries.values()) {
+            if (guardId.equals(entry.guardId())) {
+                highest = Math.max(highest, entry.contractGeneration());
+            }
+        }
+        return highest == Long.MAX_VALUE ? Long.MAX_VALUE : Math.max(1L, highest + 1L);
+    }
+
     public boolean isHealthy() { return safeFile.isHealthy() && !uncertain; }
     public SafeYamlFile.SaveResult getLastSaveResult() { return safeFile.getLastSaveResult(); }
     public long getLastSaved() { return safeFile.getLastSaved(); }

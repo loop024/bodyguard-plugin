@@ -145,10 +145,26 @@ public final class BodyGuard extends JavaPlugin {
             gui.stopTasks();
         }
         if (guardManager != null) {
-            guardManager.releaseManagedChunks();
-            if (registryInitialized) guardManager.forceSave();
+            try {
+                guardManager.releaseManagedChunks();
+            } catch (RuntimeException failure) {
+                getLogger().log(Level.SEVERE, "管理チャンクの解放に失敗しました。", failure);
+            }
+            if (registryInitialized) {
+                try {
+                    guardManager.forceSave();
+                } catch (RuntimeException failure) {
+                    getLogger().log(Level.SEVERE, "停止時の護衛データ保存に失敗しました。", failure);
+                }
+            }
         }
-        if (registryInitialized && playerDataStorage != null) playerDataStorage.retrySave();
+        if (registryInitialized && playerDataStorage != null) {
+            try {
+                playerDataStorage.retrySave();
+            } catch (RuntimeException failure) {
+                getLogger().log(Level.SEVERE, "停止時のプレイヤーデータ保存に失敗しました。", failure);
+            }
+        }
         HandlerList.unregisterAll(this);
     }
 

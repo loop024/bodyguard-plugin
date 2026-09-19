@@ -264,6 +264,9 @@ public final class GuardManager {
             return null;
         }
         if (previous != null) data.setContractGeneration(previous.getContractGeneration() + 1L);
+        else if (operationLedger != null) {
+            data.setContractGeneration(operationLedger.nextContractGeneration(data.getGuardId()));
+        }
         try {
             saveOriginalSettings(mob);
             data.observed();
@@ -408,6 +411,18 @@ public final class GuardManager {
 
     private void reconcileRetiredEntity(GuardData data, Mob mob) {
         try {
+            boolean marked = isMarked(mob.getPersistentDataContainer());
+            if (data.isReleasePending() || data.isDeletionPending()) {
+                if (!marked) {
+                    quarantine(data, "解除・削除待ちEntityのBodyGuard PDCがありません");
+                    return;
+                }
+                if (!validateRetiredEntity(data, mob)) {
+                    return;
+                }
+            } else if (marked && !validateRetiredEntity(data, mob)) {
+                return;
+            }
             switch (data.getContractStatus()) {
                 case RELEASE_PENDING, RELEASED -> finalizePendingRelease(data, mob);
                 case DELETE_PENDING, DELETED, DEAD -> finalizePendingDeletion(data, mob);
@@ -418,6 +433,26 @@ public final class GuardManager {
             dirty = true;
             reportFailure("reconcile-retired", data.getGuardId(), failure);
         }
+    }
+
+    /** Validates a retired entity before restoring or removing its state. */
+    private boolean validateRetiredEntity(GuardData data, Mob mob) {
+        PersistentDataContainer pdc = mob.getPersistentDataContainer();
+        UUID markedGuardId = parseUuid(getString(pdc, keys.guardUuid()));
+        UUID markedOwnerId = parseUuid(getString(pdc, keys.owner()));
+        String markedMobType = getString(pdc, keys.mobType());
+        Long markedGeneration = pdc.get(keys.contractGeneration(), PersistentDataType.LONG);
+        if (!isMarked(pdc) || !data.getGuardId().equals(markedGuardId)
+                || !data.getOwnerId().equals(markedOwnerId)
+                || mob.getType() != data.getMobType()
+                || markedMobType == null
+                || !data.getMobType().name().equalsIgnoreCase(markedMobType)
+                || (markedGeneration != null
+                    && markedGeneration.longValue() != data.getContractGeneration())) {
+            quarantine(data, "完了・保留操作のEntity PDCが保存データと一致しません");
+            return false;
+        }
+        return true;
     }
 
     private void quarantine(GuardData data, String reason) {
@@ -1424,8 +1459,21 @@ public final class GuardManager {
         if (!data.isReleasePending() && data.getContractStatus() != GuardData.ContractStatus.RELEASED) {
             return false;
         }
+        boolean marked = isMarked(mob.getPersistentDataContainer());
+        if (data.isReleasePending() && !marked) {
+            quarantine(data, "解除待ちEntityのBodyGuard PDCがありません");
+            return false;
+        }
+        if (marked && !validateRetiredEntity(data, mob)) {
+            return false;
+        }
+        if (!marked) {
+            // A completed release with no BodyGuard marker needs no further
+            // entity mutation. A pending release cannot infer that completion.
+            return data.getContractStatus() == GuardData.ContractStatus.RELEASED;
+        }
         if (!clearCompanion(data)) return false;
-        if (data.isReleasePending() || isMarked(mob.getPersistentDataContainer())) {
+        if (data.isReleasePending() || marked) {
             plugin.playGuardFeedback(mob, GuardFeedback.RELEASE);
             data.clearCombat();
             restoreOriginalSettings(mob);
@@ -1437,12 +1485,26 @@ public final class GuardManager {
 
     private boolean finalizePendingDeletion(GuardData data, Mob mob) {
         if (data == null || mob == null) return false;
+        boolean marked = isMarked(mob.getPersistentDataContainer());
+        if (!marked) {
+            // Never remove an entity merely because its UUID matches a retired
+            // record when the identifying BodyGuard marker is absent.
+            if (data.getContractStatus() == GuardData.ContractStatus.DELETE_PENDING) {
+                quarantine(data, "削除待ちEntityのBodyGuard PDCがありません");
+                return false;
+            }
+            return data.getContractStatus() != GuardData.ContractStatus.DELETE_PENDING;
+        }
+        if (!validateRetiredEntity(data, mob)) return false;
         if (data.getContractStatus() != GuardData.ContractStatus.DELETED) {
             if (!clearCompanion(data)) return false;
             data.clearCombat();
             mob.remove();
             return completeOperation(data);
         }
+        // A completed delete must not be revived by a stale marked entity that
+        // survived a world or registry rollback.
+        mob.remove();
         return true;
     }
 
