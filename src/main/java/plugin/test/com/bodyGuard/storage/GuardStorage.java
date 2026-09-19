@@ -153,7 +153,11 @@ public final class GuardStorage {
 
     private void readProtection(YamlConfiguration configuration, ConfigurationSection guards,
                                 String path, GuardData data) {
-        String kindText = guards.getString(path + ".protection-kind", "OWNER");
+        Object kindRaw = guards.get(path + ".protection-kind");
+        if (kindRaw != null && !(kindRaw instanceof String)) {
+            throw new IllegalArgumentException("protection-kindの型が不正です");
+        }
+        String kindText = kindRaw == null ? "OWNER" : (String) kindRaw;
         GuardData.ProtectionKind kind;
         try {
             kind = GuardData.ProtectionKind.valueOf(kindText.trim().toUpperCase(
@@ -162,7 +166,11 @@ public final class GuardStorage {
             throw new IllegalArgumentException("protection-kindが不正です");
         }
 
-        String roleId = guards.getString(path + ".role-id");
+        Object roleRaw = guards.get(path + ".role-id");
+        if (roleRaw != null && !(roleRaw instanceof String)) {
+            throw new IllegalArgumentException("role-idの型が不正です");
+        }
+        String roleId = roleRaw == null ? null : (String) roleRaw;
         if (kind == GuardData.ProtectionKind.ROLE) {
             if (roleId == null || !roleId.matches(ROLE_ID_PATTERN)) {
                 throw new IllegalArgumentException("role-idが不正です");
@@ -174,7 +182,11 @@ public final class GuardStorage {
             roleId = null;
         }
 
-        String selectedText = guards.getString(path + ".selected-target-uuid");
+        Object selectedRaw = guards.get(path + ".selected-target-uuid");
+        if (selectedRaw != null && !(selectedRaw instanceof String)) {
+            throw new IllegalArgumentException("selected-target-uuidの型が不正です");
+        }
+        String selectedText = selectedRaw == null ? null : (String) selectedRaw;
         UUID selectedTarget = null;
         if (selectedText != null && !selectedText.isBlank()) {
             try {
@@ -189,7 +201,11 @@ public final class GuardStorage {
 
         long selectionRevision = nonNegativeLong(configuration,
                 "guards." + path + ".selection-revision");
-        String stateText = guards.getString(path + ".protection-state");
+        Object stateRaw = guards.get(path + ".protection-state");
+        if (stateRaw != null && !(stateRaw instanceof String)) {
+            throw new IllegalArgumentException("protection-stateの型が不正です");
+        }
+        String stateText = stateRaw == null ? null : (String) stateRaw;
         GuardData.ProtectionState state = kind == GuardData.ProtectionKind.OWNER
                 ? GuardData.ProtectionState.ACTIVE : GuardData.ProtectionState.TARGET_UNAVAILABLE;
         if (stateText != null && !stateText.isBlank()) {
@@ -200,9 +216,12 @@ public final class GuardStorage {
                 throw new IllegalArgumentException("protection-stateが不正です");
             }
         }
+        Object reasonRaw = guards.get(path + ".protection-failure-reason");
+        if (reasonRaw != null && !(reasonRaw instanceof String)) {
+            throw new IllegalArgumentException("protection-failure-reasonの型が不正です");
+        }
         data.restoreProtection(new GuardData.ProtectionSnapshot(kind, roleId, selectedTarget,
-                selectionRevision, state,
-                guards.getString(path + ".protection-failure-reason")));
+                selectionRevision, state, reasonRaw == null ? null : (String) reasonRaw));
     }
 
     private void validateOperationState(GuardData data, UUID operationId,

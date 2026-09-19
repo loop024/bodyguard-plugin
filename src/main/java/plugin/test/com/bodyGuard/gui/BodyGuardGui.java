@@ -1763,8 +1763,11 @@ public final class BodyGuardGui implements Listener {
         String targetName = "未選択";
         if (data.isRoleProtection() && data.getSelectedTargetUuid() != null) {
             Player target = Bukkit.getPlayer(data.getSelectedTargetUuid());
-            targetName = target == null ? data.getSelectedTargetUuid().toString()
-                    : target.getName() + "（" + target.getUniqueId() + "）";
+            if (manager.isSelectedProtectionTarget(data, target)) {
+                targetName = target.getName() + "（" + target.getUniqueId() + "）";
+            } else {
+                targetName = "未選択（最終UUID: " + data.getSelectedTargetUuid() + "）";
+            }
         } else if (!data.isRoleProtection()) {
             targetName = player.getName() + "（所有者）";
         }
