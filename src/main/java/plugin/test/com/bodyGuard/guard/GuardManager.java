@@ -197,7 +197,7 @@ public final class GuardManager {
     /** Persists the current registry even when no change was recorded, for plugin shutdown. */
     public void forceSave() {
         if (storage.saveWithResult(new ArrayList<>(guards.values()))
-                == plugin.test.com.bodyGuard.storage.SafeYamlFile.SaveResult.SUCCESS) {
+                == SafeYamlFile.SaveResult.SUCCESS) {
             dirty = false;
         }
     }
@@ -551,7 +551,7 @@ public final class GuardManager {
         UUID current = playerDataStorage.getCompanion(ownerId);
         UUID next = guardId.equals(current) ? null : guardId;
         if (playerDataStorage.setCompanion(ownerId, next)
-                == plugin.test.com.bodyGuard.storage.SafeYamlFile.SaveResult.SUCCESS) {
+                == SafeYamlFile.SaveResult.SUCCESS) {
             return true;
         }
         return false;

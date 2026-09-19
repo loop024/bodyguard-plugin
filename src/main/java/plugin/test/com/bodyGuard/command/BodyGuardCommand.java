@@ -24,6 +24,7 @@ import plugin.test.com.bodyGuard.gui.BodyGuardGui;
 import plugin.test.com.bodyGuard.guard.GuardData;
 import plugin.test.com.bodyGuard.guard.GuardManager;
 import plugin.test.com.bodyGuard.guard.GuardMode;
+import plugin.test.com.bodyGuard.storage.SafeYamlFile;
 import plugin.test.com.bodyGuard.util.EntityUtil;
 import plugin.test.com.bodyGuard.util.LocationUtil;
 import plugin.test.com.bodyGuard.util.MessageUtil;
@@ -129,7 +130,7 @@ public final class BodyGuardCommand implements CommandExecutor {
         boolean changed = add ? manager.addFriend(owner.getUniqueId(), target.getUniqueId())
                 : manager.removeFriend(owner.getUniqueId(), target.getUniqueId());
         if (!changed && manager.getPlayerDataMutationResult()
-                != plugin.test.com.bodyGuard.storage.SafeYamlFile.SaveResult.SUCCESS) {
+                != SafeYamlFile.SaveResult.SUCCESS) {
             messages.send(sender, "storage-unavailable",
                     "&c仲間設定を保存できなかったため、変更していません。再試行してください。");
             return true;

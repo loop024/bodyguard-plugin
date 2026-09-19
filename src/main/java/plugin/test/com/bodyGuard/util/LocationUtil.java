@@ -98,10 +98,8 @@ public final class LocationUtil {
         }
 
         BoundingBox candidate = BoundingBox.of(
-                location.getX() - halfWidth, location.getY(),
-                location.getZ() - halfWidth,
-                location.getX() + halfWidth, location.getY() + height,
-                location.getZ() + halfWidth);
+                location.clone().add(-halfWidth, 0.0, -halfWidth),
+                location.clone().add(halfWidth, height, halfWidth));
         for (Entity nearby : world.getNearbyEntities(location, halfWidth + 0.6,
                 Math.max(1.0, height), halfWidth + 0.6)) {
             if (nearby == ignoredEntity || !(nearby instanceof LivingEntity)
