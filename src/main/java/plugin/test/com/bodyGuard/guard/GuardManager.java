@@ -103,7 +103,8 @@ public final class GuardManager {
         }
         for (Map.Entry<UUID, UUID> entry : playerDataStorage.getCompanions().entrySet()) {
             GuardData companion = guards.get(entry.getValue());
-            if (companion == null || !entry.getKey().equals(companion.getOwnerId())) {
+            if (companion == null || !entry.getKey().equals(companion.getOwnerId())
+                    || !companion.isActiveContract()) {
                 playerDataStorage.setCompanion(entry.getKey(), null);
             }
         }
@@ -279,7 +280,6 @@ public final class GuardManager {
                 name, ownerName, null, location, nameNumber);
 
         GuardData previous = guards.get(data.getGuardId());
-        if (previous != null && !previous.getOwnerId().equals(owner.getUniqueId())) return null;
         if (previous == null && isMarked(mob.getPersistentDataContainer())) {
             // A marked Entity without a registry record is not safe to transfer
             // or overwrite. The PDC alone cannot prove that an old contract ended.
@@ -294,6 +294,7 @@ public final class GuardManager {
             reconcileRetiredEntity(previous, mob);
             if (isMarked(mob.getPersistentDataContainer())) return null;
         }
+        if (previous != null && !previous.getOwnerId().equals(owner.getUniqueId())) return null;
         if (previous != null && previous.getContractStatus() != GuardData.ContractStatus.RELEASED) {
             // A pending, deleted, or dead contract is a tombstone. It must not be
             // reused merely because an old PDC is still attached to the entity.
@@ -377,48 +378,39 @@ public final class GuardManager {
         }
         String pdcMobType = getString(pdc, keys.mobType());
         if (pdcMobType == null || !mob.getType().name().equalsIgnoreCase(pdcMobType)
-                || (previous != null && (previous.getMobType() != mob.getType()
-                    || !previous.getMobType().name().equalsIgnoreCase(pdcMobType)))) {
+                || previous.getMobType() != mob.getType()
+                || !previous.getMobType().name().equalsIgnoreCase(pdcMobType)) {
             quarantine(previous, "Mob種類が保存レジストリと一致しません");
-            if (previous == null) {
-                plugin.getLogger().warning("BodyGuard PDCのMob種類が不正なため再登録しません: " + entityId);
-            }
             return null;
         }
-        if (previous == null && operationLedgerHasGuard(entityId)) {
-            plugin.getLogger().warning("完了済み操作台帳のUUIDをPDCから再登録しません: " + entityId);
+        if (previous == null) {
+            // A PDC marker without a registry contract is not enough evidence
+            // to resurrect or transfer an old guard after a rollback.
+            String reason = operationLedgerHasGuard(entityId)
+                    ? "完了済み操作台帳のUUIDをPDCから再登録しません: "
+                    : "レジストリにないBodyGuard PDCを再登録しません: ";
+            plugin.getLogger().warning(reason + entityId);
             return null;
         }
         GuardMode mode = GuardMode.fromString(getString(pdc, keys.mode()));
-        if (mode == null && previous != null) {
+        if (mode == null) {
             mode = previous.getMode();
         }
-        if (mode == null) {
-            mode = GuardMode.FOLLOW;
-        }
 
-        String ownerName = previous == null ? null : previous.getOwnerName();
+        String ownerName = previous.getOwnerName();
         if (ownerName == null || ownerName.isBlank()) {
             Player owner = Bukkit.getPlayer(ownerId);
             ownerName = owner == null ? "Player" : owner.getName();
         }
-        Integer pdcNameNumber = pdc.get(keys.nameNumber(), PersistentDataType.INTEGER);
-        int nameNumber = previous != null ? previous.getNameNumber()
-                : pdcNameNumber == null ? 0 : Math.max(0, pdcNameNumber);
+        int nameNumber = previous.getNameNumber();
         String name = getString(pdc, keys.name());
         if (name == null || name.isBlank()) {
-            if (previous != null) {
-                name = previous.getName();
-            } else {
-                nameNumber = nameNumber > 0 ? nameNumber : nextNameNumber(ownerId, mob.getType());
-                name = createDefaultName(ownerName, mob.getType(), nameNumber);
-            }
+            name = previous.getName();
         }
 
-        SavedPosition savedAnchor = previous == null ? readSavedAnchorFromPdc(pdc)
-                : previous.getSavedAnchor();
+        SavedPosition savedAnchor = previous.getSavedAnchor();
         Location anchor = savedAnchor == null ? null : savedAnchor.resolve();
-        if (anchor == null && mode != GuardMode.FOLLOW && (previous == null || previous.getSavedAnchor() == null)) {
+        if (anchor == null && mode != GuardMode.FOLLOW && previous.getSavedAnchor() == null) {
             anchor = entity.getLocation();
         }
         GuardData data = new GuardData(
@@ -426,20 +418,14 @@ public final class GuardManager {
                 entity.getLocation(), nameNumber);
         if (savedAnchor != null) data.setSavedPositions(savedAnchor, SavedPosition.of(entity.getLocation()));
         data.observed();
-        if (previous != null) {
-            data.setContractGeneration(previous.getContractGeneration());
-        } else {
-            Long pdcGeneration = pdc.get(keys.contractGeneration(), PersistentDataType.LONG);
-            if (pdcGeneration != null && pdcGeneration > 0L) data.setContractGeneration(pdcGeneration);
-        }
+        data.setContractGeneration(previous.getContractGeneration());
         Long pdcGeneration = pdc.get(keys.contractGeneration(), PersistentDataType.LONG);
-        if (previous != null && pdcGeneration != null
+        if (pdcGeneration != null
                 && pdcGeneration.longValue() != previous.getContractGeneration()) {
             quarantine(previous, "PDCの契約世代が保存レジストリと一致しません");
             return null;
         }
-        Byte pdcFavorite = pdc.get(keys.favorite(), PersistentDataType.BYTE);
-        data.setFavorite(previous != null ? previous.isFavorite() : pdcFavorite != null && pdcFavorite != 0);
+        data.setFavorite(previous.isFavorite());
         guards.put(entityId, data);
         dirty = true;
 
@@ -1314,8 +1300,10 @@ public final class GuardManager {
         for (GuardData data : guards.values()) {
             try {
                 Player owner = Bukkit.getPlayer(data.getOwnerId());
+                GuardData.Status currentStatus = status(data);
                 if (owner != null && owner.isOnline() && data.isActiveContract()
-                        && status(data) != GuardData.Status.MISSING
+                        && currentStatus != GuardData.Status.MISSING
+                        && currentStatus != GuardData.Status.QUARANTINED
                         && !data.isQuarantined()) {
                     byOwner.computeIfAbsent(data.getOwnerId(), ignored -> new ArrayList<>()).add(data);
                 }
@@ -1540,7 +1528,8 @@ public final class GuardManager {
             mob.setAware(aware != 0);
         }
         String targetId = getString(pdc, keys.originalTarget());
-        Entity target = targetId == null ? null : Bukkit.getEntity(parseUuid(targetId));
+        UUID parsedTargetId = targetId == null ? null : parseUuid(targetId);
+        Entity target = parsedTargetId == null ? null : Bukkit.getEntity(parsedTargetId);
         mob.setTarget(target instanceof LivingEntity living && EntityUtil.isAlive(living) ? living : null);
     }
 

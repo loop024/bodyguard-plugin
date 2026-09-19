@@ -5,7 +5,6 @@ import org.bukkit.Material;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
-import org.bukkit.entity.Player;
 import org.bukkit.util.BoundingBox;
 import org.bukkit.util.Vector;
 
@@ -106,7 +105,7 @@ public final class LocationUtil {
         for (Entity nearby : world.getNearbyEntities(location, halfWidth + 0.6,
                 Math.max(1.0, height), halfWidth + 0.6)) {
             if (nearby == ignoredEntity || !(nearby instanceof LivingEntity)
-                    || nearby instanceof Player || !nearby.isValid() || nearby.isDead()) continue;
+                    || !nearby.isValid() || nearby.isDead()) continue;
             if (candidate.overlaps(nearby.getBoundingBox())) return false;
         }
         return true;

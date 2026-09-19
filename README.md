@@ -264,6 +264,7 @@ ArmorStandなどの補助Entityは作らないため、チャンクのアンロ�
 | キー | 初期値 | 説明 |
 | --- | ---: | --- |
 | `storage.autosave-seconds` | `60` | 変更された護衛情報の自動保存間隔。`0`で無効 |
+| `guard-management.keep-chunks-loaded-while-owner-online` | `true` | 所有者がオンライン中に護衛のチャンクを保持 |
 | `guard-management.max-loaded-chunks` | `64` | BodyGuardが保持するチャンクチケットの全体上限 |
 | `guard-management.max-loaded-chunks-per-owner` | `16` | オンライン所有者1人あたりのチケット上限 |
 | `guard-management.chunk-loads-per-cycle` | `2` | 1周期に新しく要求するチャンク数 |
