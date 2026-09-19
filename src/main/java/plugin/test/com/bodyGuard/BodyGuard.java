@@ -762,6 +762,8 @@ public final class BodyGuard extends JavaPlugin {
         private final org.bukkit.NamespacedKey originalRemoveWhenFarAway;
         private final org.bukkit.NamespacedKey originalPersistent;
         private final org.bukkit.NamespacedKey originalAware;
+        private final org.bukkit.NamespacedKey originalTarget;
+        private final org.bukkit.NamespacedKey contractGeneration;
         private final org.bukkit.NamespacedKey menuOpener;
 
         private NamespacedKeys(JavaPlugin plugin) {
@@ -783,6 +785,8 @@ public final class BodyGuard extends JavaPlugin {
             originalRemoveWhenFarAway = new org.bukkit.NamespacedKey(plugin, "original_remove_when_far_away");
             originalPersistent = new org.bukkit.NamespacedKey(plugin, "original_persistent");
             originalAware = new org.bukkit.NamespacedKey(plugin, "original_aware");
+            originalTarget = new org.bukkit.NamespacedKey(plugin, "original_target");
+            contractGeneration = new org.bukkit.NamespacedKey(plugin, "contract_generation");
             menuOpener = new org.bukkit.NamespacedKey(plugin, "menu_opener");
         }
 
@@ -804,6 +808,8 @@ public final class BodyGuard extends JavaPlugin {
         public org.bukkit.NamespacedKey originalRemoveWhenFarAway() { return originalRemoveWhenFarAway; }
         public org.bukkit.NamespacedKey originalPersistent() { return originalPersistent; }
         public org.bukkit.NamespacedKey originalAware() { return originalAware; }
+        public org.bukkit.NamespacedKey originalTarget() { return originalTarget; }
+        public org.bukkit.NamespacedKey contractGeneration() { return contractGeneration; }
         public org.bukkit.NamespacedKey menuOpener() { return menuOpener; }
     }
 }

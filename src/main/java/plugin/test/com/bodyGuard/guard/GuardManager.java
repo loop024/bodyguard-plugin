@@ -51,6 +51,8 @@ public final class GuardManager {
     private final Map<String, Long> retryNotBefore = new LinkedHashMap<>();
     private final Map<UUID, Integer> searchOffsets = new LinkedHashMap<>();
     private int searchBudget = 32;
+    private int chunkCursor;
+    private int ownerCursor;
 
     public void reportFailure(String operation, UUID guardId, RuntimeException failure) {
         long now = System.currentTimeMillis();
@@ -251,15 +253,21 @@ public final class GuardManager {
 
         GuardData previous = guards.get(data.getGuardId());
         if (previous != null && !previous.getOwnerId().equals(owner.getUniqueId())) return null;
+        if (previous != null && previous.getContractStatus() != GuardData.ContractStatus.RELEASED) {
+            // A pending, deleted, or dead contract is a tombstone. It must not be
+            // reused merely because an old PDC is still attached to the entity.
+            return null;
+        }
+        if (previous != null) data.setContractGeneration(previous.getContractGeneration() + 1L);
         try {
             saveOriginalSettings(mob);
             data.observed();
             guards.put(data.getGuardId(), data);
             dirty = true;
+            if (!persistNow()) throw new IllegalStateException("護衛の登録を保存できませんでした。");
             applyPdc(mob, data);
             mob.setAware(true);
             configureGuard(mob, data);
-            if (!persistNow()) throw new IllegalStateException("護衛の登録を保存できませんでした。");
             return data;
         } catch (RuntimeException failure) {
             if (previous == null) guards.remove(data.getGuardId());
@@ -281,25 +289,46 @@ public final class GuardManager {
         if (!(entity instanceof Mob mob)) {
             return null;
         }
-        PersistentDataContainer pdc = mob.getPersistentDataContainer();
-        if (!isMarked(pdc)) {
+        UUID entityId = entity.getUniqueId();
+        GuardData previous = guards.get(entityId);
+        if (previous != null && previous.isRetired()) {
+            reconcileRetiredEntity(previous, mob);
             return null;
         }
 
+        PersistentDataContainer pdc = mob.getPersistentDataContainer();
+        if (!isMarked(pdc)) {
+            if (previous != null && previous.isActiveContract()) {
+                quarantine(previous, "登録済みUUIDのEntityからBodyGuard PDCが失われています");
+            }
+            return null;
+        }
+
+        UUID markedGuardId = parseUuid(getString(pdc, keys.guardUuid()));
+        if (markedGuardId != null && !entityId.equals(markedGuardId)) {
+            if (previous != null) quarantine(previous, "PDCのguard UUIDがEntity UUIDと一致しません");
+            plugin.getLogger().warning("BodyGuard PDCのUUID不一致を隔離しました: " + entityId);
+            return null;
+        }
         UUID ownerId = parseUuid(getString(pdc, keys.owner()));
         if (ownerId == null) {
             plugin.getLogger().warning("Ignoring BodyGuard with invalid owner UUID: " + entity.getUniqueId());
             return null;
         }
 
-        UUID entityId = entity.getUniqueId();
-        GuardData previous = guards.get(entityId);
-        if (previous != null && previous.isDeletionPending()) {
-            finalizePendingDeletion(previous, mob);
+        if (previous != null && !previous.getOwnerId().equals(ownerId)) {
+            quarantine(previous, "PDCの所有者UUIDが保存レジストリと一致しません");
             return null;
         }
-        if (previous != null && previous.isReleasePending()) {
-            finalizePendingRelease(previous, mob);
+        String pdcMobType = getString(pdc, keys.mobType());
+        if (previous != null && (pdcMobType == null
+                || !previous.getMobType().name().equalsIgnoreCase(pdcMobType)
+                || previous.getMobType() != mob.getType())) {
+            quarantine(previous, "Mob種類が保存レジストリと一致しません");
+            return null;
+        }
+        if (previous == null && operationLedgerHasGuard(entityId)) {
+            plugin.getLogger().warning("完了済み操作台帳のUUIDをPDCから再登録しません: " + entityId);
             return null;
         }
         GuardMode mode = GuardMode.fromString(getString(pdc, keys.mode()));
@@ -328,17 +357,18 @@ public final class GuardManager {
             }
         }
 
-        Location anchor = previous == null ? readAnchorFromPdc(pdc) : previous.getAnchorLocation();
+        SavedPosition savedAnchor = previous == null ? readSavedAnchorFromPdc(pdc)
+                : previous.getSavedAnchor();
+        Location anchor = savedAnchor == null ? null : savedAnchor.resolve();
         if (anchor == null && mode != GuardMode.FOLLOW && (previous == null || previous.getSavedAnchor() == null)) {
             anchor = entity.getLocation();
         }
         GuardData data = new GuardData(
                 entityId, ownerId, mob.getType(), mode, name, ownerName, anchor,
                 entity.getLocation(), nameNumber);
-        if (previous != null && previous.getSavedAnchor() != null && anchor == null) {
-            data.setSavedPositions(previous.getSavedAnchor(), SavedPosition.of(entity.getLocation()));
-        }
+        if (savedAnchor != null) data.setSavedPositions(savedAnchor, SavedPosition.of(entity.getLocation()));
         data.observed();
+        if (previous != null) data.setContractGeneration(previous.getContractGeneration());
         Byte pdcFavorite = pdc.get(keys.favorite(), PersistentDataType.BYTE);
         data.setFavorite(previous != null ? previous.isFavorite() : pdcFavorite != null && pdcFavorite != 0);
         guards.put(entityId, data);
@@ -348,6 +378,32 @@ public final class GuardManager {
         applyPdc(mob, data);
         configureGuard(mob, data);
         return data;
+    }
+
+    private void reconcileRetiredEntity(GuardData data, Mob mob) {
+        try {
+            switch (data.getContractStatus()) {
+                case RELEASE_PENDING, RELEASED -> finalizePendingRelease(data, mob);
+                case DELETE_PENDING, DELETED, DEAD -> finalizePendingDeletion(data, mob);
+                case ACTIVE -> { }
+            }
+        } catch (RuntimeException failure) {
+            data.recordOperationFailure(failure.getMessage());
+            dirty = true;
+            reportFailure("reconcile-retired", data.getGuardId(), failure);
+        }
+    }
+
+    private void quarantine(GuardData data, String reason) {
+        if (data == null) return;
+        data.markQuarantined(reason);
+        dirty = true;
+        save();
+    }
+
+    private boolean operationLedgerHasGuard(UUID guardId) {
+        return operationLedger != null && operationLedger.getEntries().stream()
+                .anyMatch(entry -> entry.guardId().equals(guardId));
     }
 
     public boolean isGuard(Entity entity) {
@@ -362,10 +418,9 @@ public final class GuardManager {
         PersistentDataContainer pdc = entity.getPersistentDataContainer();
         if (data != null) {
             // This is deliberately a read-only query. GUI rendering, filtering and
-            // combat checks must never complete operations or rewrite the registry.
-            if (data.isDeletionPending() || data.isReleasePending() || !isMarked(pdc)) return null;
-            UUID markedOwner = parseUuid(getString(pdc, keys.owner()));
-            return data.getOwnerId().equals(markedOwner) ? data : null;
+            // combat checks never complete operations, rewrite PDC, save, or search.
+            if (!data.isActiveContract() || data.isQuarantined() || !isMarked(pdc)) return null;
+            return isEntityConsistent(data, entity) ? data : null;
         }
         // Registration/reconciliation is performed only by explicit load-event and
         // startup paths through trackLoadedEntity().
@@ -428,14 +483,11 @@ public final class GuardManager {
     /** Releases one selected guard only when it is still owned by the caller and loaded. */
     public boolean releaseGuard(UUID ownerId, UUID guardId) {
         GuardData data = getGuardData(guardId);
-        if (data == null || ownerId == null || !ownerId.equals(data.getOwnerId())) {
+        if (data == null || ownerId == null || !ownerId.equals(data.getOwnerId())
+                || !data.isActiveContract()) {
             return false;
         }
-        Mob mob = getLoadedMob(data);
-        if (mob == null || !owns(ownerId, mob)) {
-            return false;
-        }
-        return releaseGuard(data, mob);
+        return releaseGuards(ownerId, List.of(guardId)).affected() > 0;
     }
 
     /**
@@ -447,18 +499,17 @@ public final class GuardManager {
         int released = 0, queued = 0, failed = 0;
         for (UUID id : new LinkedHashSet<>(guardIds)) {
             GuardData data = guards.get(id);
-            if (data == null || !ownerId.equals(data.getOwnerId()) || data.isDeletionPending()) {
+            if (data == null || !ownerId.equals(data.getOwnerId())
+                    || (!data.isActiveContract()
+                        && !data.isReleasePending())) {
                 failed++;
                 continue;
             }
-            boolean previous = data.isReleasePending();
-            boolean previousCompleted = data.isOperationCompleted();
-            data.setReleasePending(true);
-            data.setOperationCompleted(false);
-            dirty = true;
-            if (!persistNow()) {
-                data.setReleasePending(previous);
-                data.setOperationCompleted(previousCompleted);
+            if (data.isReleasePending()) {
+                queued++;
+                continue;
+            }
+            if (!acceptOperation(data, GuardData.OperationType.RELEASE)) {
                 failed++;
                 continue;
             }
@@ -466,8 +517,8 @@ public final class GuardManager {
                 clearCompanion(data);
                 Entity entity = findLoadedEntity(data);
                 if (entity instanceof Mob mob) {
-                    finalizePendingRelease(data, mob);
-                    released++;
+                    if (finalizePendingRelease(data, mob)) released++;
+                    else queued++;
                 } else queued++;
             } catch (RuntimeException failure) {
                 plugin.getLogger().log(java.util.logging.Level.WARNING,
@@ -504,15 +555,33 @@ public final class GuardManager {
     }
 
     public Mob getLoadedMob(GuardData data) {
-        if (data == null || data.isDeletionPending() || data.isReleasePending()) {
+        if (data == null || !data.isActiveContract() || data.isQuarantined()) {
             return null;
         }
-        Entity entity = findLoadedEntity(data);
+        Entity entity = findLoadedEntityForRead(data);
         if (!(entity instanceof Mob mob) || !EntityUtil.isAlive(entity)) {
             return null;
         }
         GuardData actual = getGuardData(entity);
         return actual != null && data.getGuardId().equals(actual.getGuardId()) ? mob : null;
+    }
+
+    private Entity findLoadedEntityForRead(GuardData data) {
+        if (data == null) return null;
+        Entity entity = Bukkit.getEntity(data.getGuardId());
+        return entity != null && entity.isValid() ? entity : null;
+    }
+
+    private boolean isEntityConsistent(GuardData data, Entity entity) {
+        if (data == null || entity == null || !data.getGuardId().equals(entity.getUniqueId())
+                || entity.getType() != data.getMobType() || !(entity instanceof Mob mob)) {
+            return false;
+        }
+        PersistentDataContainer pdc = mob.getPersistentDataContainer();
+        return isMarked(pdc)
+                && data.getOwnerId().equals(parseUuid(getString(pdc, keys.owner())))
+                && data.getGuardId().equals(parseUuid(getString(pdc, keys.guardUuid())))
+                && data.getMobType().name().equalsIgnoreCase(getString(pdc, keys.mobType()));
     }
 
     public boolean isForbiddenTarget(Mob guard, LivingEntity target) {
@@ -779,19 +848,11 @@ public final class GuardManager {
                 failed++;
                 continue;
             }
-            boolean oldRelease = data.isReleasePending();
-            boolean oldDeletion = data.isDeletionPending();
-            boolean oldCompleted = data.isOperationCompleted();
-            data.setReleasePending(false);
-            data.setDeletionPending(true);
-            data.setOperationCompleted(false);
-            dirty = true;
-            // Commit the tombstone before touching the entity. Never infer absence
-            // from a loaded chunk: its entity-loading phase may not have finished.
-            if (!persistNow()) {
-                data.setReleasePending(oldRelease);
-                data.setDeletionPending(oldDeletion);
-                data.setOperationCompleted(oldCompleted);
+            if (data.isDeletionPending()) {
+                queued++;
+                continue;
+            }
+            if (!data.isActiveContract() || !acceptOperation(data, GuardData.OperationType.DELETE)) {
                 failed++;
                 continue;
             }
@@ -800,8 +861,8 @@ public final class GuardManager {
                 clearCompanion(data);
                 Entity entity = findLoadedEntity(data);
                 if (entity instanceof Mob mob) {
-                    finalizePendingDeletion(data, mob);
-                    deleted++;
+                    if (finalizePendingDeletion(data, mob)) deleted++;
+                    else queued++;
                 } else {
                     queued++;
                 }
@@ -856,19 +917,18 @@ public final class GuardManager {
         if (data == null) {
             return null;
         }
-        if (data.isRetired()) return null;
-        data.setDeathConfirmed(true);
-        data.setDeletionPending(true);
-        data.setOperationCompleted(true);
+        if (!data.isActiveContract() || !acceptOperation(data, GuardData.OperationType.DEATH)) return null;
         clearCompanion(data);
-        dirty = true;
-        save();
+        completeOperation(data);
         return data;
     }
 
     public void cleanup() {
         for (GuardData data : new ArrayList<>(guards.values())) {
-            if (data.isRetired() && data.isOperationCompleted()) continue;
+            if (data.isRetired() && data.isOperationCompleted()) {
+                searchOffsets.remove(data.getGuardId());
+                continue;
+            }
             Entity entity = findLoadedEntity(data);
             if (entity instanceof Mob mob && entity.isValid() && !entity.isDead()) {
                 if (data.isDeletionPending()) finalizePendingDeletion(data, mob);
@@ -879,6 +939,9 @@ public final class GuardManager {
                     dirty = true;
                 }
             }
+            if (!data.isActiveContract() || data.isOperationCompleted()) {
+                searchOffsets.remove(data.getGuardId());
+            }
         }
     }
     public void handleChunkLoad(Chunk chunk) {
@@ -887,9 +950,9 @@ public final class GuardManager {
         }
         boolean changed = false;
         for (Entity entity : chunk.getEntities()) {
-            int before = guards.size();
+            boolean wasDirty = dirty;
             trackLoadedEntity(entity);
-            if (guards.size() != before) {
+            if (guards.size() != 0 && (!wasDirty && dirty)) {
                 dirty = true;
                 changed = true;
             }
@@ -906,9 +969,9 @@ public final class GuardManager {
         }
         boolean changed = false;
         for (Entity entity : entities) {
-            int before = guards.size();
+            boolean wasDirty = dirty;
             trackLoadedEntity(entity);
-            if (guards.size() != before) {
+            if (!wasDirty && dirty) {
                 changed = true;
             }
         }
@@ -918,12 +981,12 @@ public final class GuardManager {
         for (Entity entity : entities) loadedIds.add(entity.getUniqueId());
         for (GuardData data : guards.values()) {
             if (data.isRetired() || data.getMissingSince() != 0) continue;
-            Location last = data.getLastLocation();
-            if (last == null || last.getWorld() != chunk.getWorld()
-                    || (last.getBlockX() >> 4) != chunk.getX()
-                    || (last.getBlockZ() >> 4) != chunk.getZ()) continue;
+            SavedPosition last = data.getSavedLast();
+            if (last == null || !chunk.getWorld().getUID().equals(last.worldId())
+                    || ((int) Math.floor(last.x()) >> 4) != chunk.getX()
+                    || ((int) Math.floor(last.z()) >> 4) != chunk.getZ()) continue;
             if (!loadedIds.contains(data.getGuardId())) {
-                data.setMissingSince(System.currentTimeMillis());
+                data.markMissingObservation(System.currentTimeMillis());
                 dirty = true;
                 changed = true;
             }
@@ -945,17 +1008,18 @@ public final class GuardManager {
         }
         UUID guardId = data.getGuardId();
         Entity entity = Bukkit.getEntity(guardId);
-        if (entity != null) {
+        if (entity != null && entity.isValid()) {
             return entity;
         }
 
-        Location last = data.getLastLocation();
-        World world = last == null ? null : last.getWorld();
+        SavedPosition savedLast = data.getSavedLast();
+        World world = savedLast == null || savedLast.worldId() == null
+                ? null : Bukkit.getWorld(savedLast.worldId());
         if (world == null) {
             return null;
         }
-        int centerX = last.getBlockX() >> 4;
-        int centerZ = last.getBlockZ() >> 4;
+        int centerX = (int) Math.floor(savedLast.x()) >> 4;
+        int centerZ = (int) Math.floor(savedLast.z()) >> 4;
         int offset = searchOffsets.getOrDefault(guardId, 0);
         int checked = 0;
         int diameter = MISSING_SEARCH_CHUNK_RADIUS * 2 + 1;
@@ -969,7 +1033,10 @@ public final class GuardManager {
             searchOffsets.put(guardId, (index + 1) % area);
             if (!world.isChunkLoaded(x, z)) continue;
             for (Entity candidate : world.getChunkAt(x, z).getEntities()) {
-                if (guardId.equals(candidate.getUniqueId())) return candidate;
+                if (guardId.equals(candidate.getUniqueId())) {
+                    searchOffsets.remove(guardId);
+                    return candidate;
+                }
             }
         }        return null;
     }
@@ -979,10 +1046,11 @@ public final class GuardManager {
             return;
         }
         for (Entity entity : chunk.getEntities()) {
-            GuardData data = getGuardData(entity);
+            GuardData data = guards.get(entity.getUniqueId());
             if (data != null) {
                 data.setLastLocation(entity.getLocation());
                 data.setMissingSince(0);
+                data.setMissingObservations(0);
                 dirty = true;
             }
         }
@@ -1033,24 +1101,53 @@ public final class GuardManager {
 
         Set<GuardChunk> desired = new LinkedHashSet<>();
         Map<UUID, Set<GuardChunk>> perOwner = new LinkedHashMap<>();
+        Map<UUID, List<GuardData>> byOwner = new LinkedHashMap<>();
         for (GuardData data : guards.values()) {
             Player owner = Bukkit.getPlayer(data.getOwnerId());
-            if (owner == null || !owner.isOnline() || data.isRetired()
-                    || status(data) == GuardData.Status.MISSING) {
-                continue;
+            if (owner != null && owner.isOnline() && data.isActiveContract()
+                    && status(data) != GuardData.Status.MISSING
+                    && !data.isQuarantined()) {
+                byOwner.computeIfAbsent(data.getOwnerId(), ignored -> new ArrayList<>()).add(data);
             }
-            Entity loaded = Bukkit.getEntity(data.getGuardId());
-            Location location = loaded == null ? data.getLastLocation() : loaded.getLocation();
-            if (location == null || location.getWorld() == null) {
-                continue;
+        }
+        List<UUID> owners = new ArrayList<>(byOwner.keySet());
+        if (!owners.isEmpty()) {
+            int ownerStart = Math.floorMod(ownerCursor++, owners.size());
+            int maxRounds = byOwner.values().stream().mapToInt(List::size).max().orElse(0);
+            for (int round = 0; round < maxRounds
+                    && desired.size() < plugin.getManagedChunkLimit(); round++) {
+                for (int ownerIndex = 0; ownerIndex < owners.size()
+                        && desired.size() < plugin.getManagedChunkLimit(); ownerIndex++) {
+                    UUID ownerId = owners.get((ownerStart + ownerIndex) % owners.size());
+                    List<GuardData> ownerGuards = byOwner.get(ownerId);
+                    if (round >= ownerGuards.size()) continue;
+                    GuardData data = ownerGuards.get((round + Math.floorMod(chunkCursor, ownerGuards.size()))
+                            % ownerGuards.size());
+                    Entity loaded = Bukkit.getEntity(data.getGuardId());
+                    Location location = loaded == null ? resolveSavedLocation(data.getSavedLast())
+                            : loaded.getLocation();
+                    if (location == null || location.getWorld() == null) continue;
+                    GuardChunk requested = new GuardChunk(location.getWorld().getUID(),
+                            location.getBlockX() >> 4, location.getBlockZ() >> 4);
+                    Set<GuardChunk> ownerChunks = perOwner.computeIfAbsent(ownerId,
+                            ignored -> new LinkedHashSet<>());
+                    if (ownerChunks.size() < plugin.getOwnerChunkLimit()) {
+                        ownerChunks.add(requested);
+                        desired.add(requested);
+                    }
+                }
             }
-            GuardChunk requested = new GuardChunk(location.getWorld().getUID(),
-                    location.getBlockX() >> 4, location.getBlockZ() >> 4);
-            Set<GuardChunk> ownerChunks = perOwner.computeIfAbsent(data.getOwnerId(), ignored -> new LinkedHashSet<>());
-            if (ownerChunks.size() < plugin.getOwnerChunkLimit() && desired.size() < plugin.getManagedChunkLimit()) {
-                ownerChunks.add(requested);
-                desired.add(requested);
+            chunkCursor++;
+        }
+
+        // Return obsolete tickets before checking capacity for new ones.
+        for (GuardChunk key : new ArrayList<>(managedChunks)) {
+            if (desired.contains(key)) continue;
+            World world = Bukkit.getWorld(key.worldId());
+            if (world != null && world.isChunkLoaded(key.x(), key.z())) {
+                world.getChunkAt(key.x(), key.z()).removePluginChunkTicket(plugin);
             }
+            managedChunks.remove(key);
         }
 
         int loads = 0;
@@ -1065,7 +1162,7 @@ public final class GuardManager {
             if (loads >= plugin.getChunkLoadsPerCycle()) break;
             loads++;
             Chunk chunk = world.getChunkAt(key.x(), key.z());
-            chunk.addPluginChunkTicket(plugin);
+            if (!chunk.addPluginChunkTicket(plugin)) continue;
             managedChunks.add(key);
             // A synchronously loaded chunk can already contain its entities before
             // EntitiesLoadEvent reaches this plugin, so reconcile it immediately.
@@ -1074,16 +1171,13 @@ public final class GuardManager {
             }
         }
 
-        for (GuardChunk key : new ArrayList<>(managedChunks)) {
-            if (desired.contains(key)) {
-                continue;
-            }
-            World world = Bukkit.getWorld(key.worldId());
-            if (world != null && world.isChunkLoaded(key.x(), key.z())) {
-                world.getChunkAt(key.x(), key.z()).removePluginChunkTicket(plugin);
-            }
-            managedChunks.remove(key);
-        }
+    }
+
+    private Location resolveSavedLocation(SavedPosition saved) {
+        if (saved == null || saved.worldId() == null) return null;
+        World world = Bukkit.getWorld(saved.worldId());
+        return world == null ? null : new Location(world, saved.x(), saved.y(), saved.z(),
+                saved.yaw(), saved.pitch());
     }
 
     /** Releases all plugin chunk tickets during shutdown or configuration changes. */
@@ -1154,20 +1248,23 @@ public final class GuardManager {
         pdc.set(keys.name(), PersistentDataType.STRING, data.getName());
         pdc.set(keys.nameNumber(), PersistentDataType.INTEGER, data.getNameNumber());
         pdc.set(keys.favorite(), PersistentDataType.BYTE, (byte) (data.isFavorite() ? 1 : 0));
+        pdc.set(keys.contractGeneration(), PersistentDataType.LONG, data.getContractGeneration());
 
-        Location anchor = data.getAnchorLocation();
-        if (anchor == null || anchor.getWorld() == null) {
+        SavedPosition anchor = data.getSavedAnchor();
+        if (anchor == null) {
             pdc.remove(keys.anchorWorld());
             pdc.remove(keys.anchorWorldUuid());
             pdc.remove(keys.anchorX());
             pdc.remove(keys.anchorY());
             pdc.remove(keys.anchorZ());
         } else {
-            pdc.set(keys.anchorWorld(), PersistentDataType.STRING, anchor.getWorld().getName());
-            pdc.set(keys.anchorWorldUuid(), PersistentDataType.STRING, anchor.getWorld().getUID().toString());
-            pdc.set(keys.anchorX(), PersistentDataType.DOUBLE, anchor.getX());
-            pdc.set(keys.anchorY(), PersistentDataType.DOUBLE, anchor.getY());
-            pdc.set(keys.anchorZ(), PersistentDataType.DOUBLE, anchor.getZ());
+            pdc.set(keys.anchorWorld(), PersistentDataType.STRING,
+                    anchor.worldName() == null ? "" : anchor.worldName());
+            if (anchor.worldId() == null) pdc.remove(keys.anchorWorldUuid());
+            else pdc.set(keys.anchorWorldUuid(), PersistentDataType.STRING, anchor.worldId().toString());
+            pdc.set(keys.anchorX(), PersistentDataType.DOUBLE, anchor.x());
+            pdc.set(keys.anchorY(), PersistentDataType.DOUBLE, anchor.y());
+            pdc.set(keys.anchorZ(), PersistentDataType.DOUBLE, anchor.z());
         }
     }
 
@@ -1183,6 +1280,9 @@ public final class GuardManager {
                 (byte) (mob.isPersistent() ? 1 : 0));
         pdc.set(keys.originalAware(), PersistentDataType.BYTE,
                 (byte) (mob.isAware() ? 1 : 0));
+        Entity target = mob.getTarget();
+        if (target == null) pdc.remove(keys.originalTarget());
+        else pdc.set(keys.originalTarget(), PersistentDataType.STRING, target.getUniqueId().toString());
     }
 
     private void restoreOriginalSettings(Mob mob) {
@@ -1203,7 +1303,9 @@ public final class GuardManager {
         if (aware != null) {
             mob.setAware(aware != 0);
         }
-        mob.setTarget(null);
+        String targetId = getString(pdc, keys.originalTarget());
+        Entity target = targetId == null ? null : Bukkit.getEntity(parseUuid(targetId));
+        mob.setTarget(target instanceof LivingEntity living && EntityUtil.isAlive(living) ? living : null);
     }
 
     private void clearPdc(Mob mob) {
@@ -1226,33 +1328,71 @@ public final class GuardManager {
         pdc.remove(keys.originalRemoveWhenFarAway());
         pdc.remove(keys.originalPersistent());
         pdc.remove(keys.originalAware());
+        pdc.remove(keys.originalTarget());
+        pdc.remove(keys.contractGeneration());
     }
 
-    private void finalizePendingRelease(GuardData data, Mob mob) {
-        if (data == null || mob == null) {
-            return;
+    private boolean acceptOperation(GuardData data, GuardData.OperationType type) {
+        if (data == null || !data.isActiveContract() || operationLedger == null) return false;
+        UUID operationId = UUID.randomUUID();
+        long acceptedAt = System.currentTimeMillis();
+        if (!operationLedger.append(operationId, data.getContractGeneration(), data.getGuardId(),
+                data.getOwnerId(), type, acceptedAt)) {
+            data.recordOperationFailure("操作台帳へ受理記録を保存できません");
+            dirty = true;
+            return false;
         }
-        if (data.isOperationCompleted() && !isMarked(mob.getPersistentDataContainer())) return;
-        plugin.playGuardFeedback(mob, GuardFeedback.RELEASE);
-        data.clearCombat();
-        restoreOriginalSettings(mob);
-        clearPdc(mob);
-        data.setOperationCompleted(true);
-        // Retain the persistent operation record after processing the entity.
-        clearCompanion(data);
+        data.beginOperation(operationId, type, acceptedAt);
         dirty = true;
+        // If this fails, the ledger still re-applies the accepted pending
+        // decision after restart. No entity has been touched yet.
+        if (!persistNow()) {
+            data.recordOperationFailure("護衛レジストリの保存結果を確認できません");
+            dirty = true;
+        }
+        return true;
     }
 
-    private void finalizePendingDeletion(GuardData data, Mob mob) {
-        if (data == null || mob == null) {
-            return;
+    private boolean completeOperation(GuardData data) {
+        if (data == null || data.getOperationId() == null || operationLedger == null) return false;
+        long completedAt = System.currentTimeMillis();
+        if (!operationLedger.complete(data.getOperationId(), completedAt)) {
+            data.recordOperationFailure("操作台帳の完了記録を保存できません");
+            dirty = true;
+            return false;
         }
-        data.clearCombat();
-        mob.remove();
-        data.setOperationCompleted(true);
-        // Retain the persistent operation record after processing the entity.
-        clearCompanion(data);
+        data.completeOperation(completedAt);
         dirty = true;
+        // The operation is safe to retry if the registry write is delayed; the
+        // independent ledger already prevents a stale PDC from reviving it.
+        return persistNow();
+    }
+
+    private boolean finalizePendingRelease(GuardData data, Mob mob) {
+        if (data == null || mob == null) return false;
+        if (!data.isReleasePending() && data.getContractStatus() != GuardData.ContractStatus.RELEASED) {
+            return false;
+        }
+        if (data.isReleasePending() || isMarked(mob.getPersistentDataContainer())) {
+            plugin.playGuardFeedback(mob, GuardFeedback.RELEASE);
+            data.clearCombat();
+            restoreOriginalSettings(mob);
+            clearPdc(mob);
+        }
+        clearCompanion(data);
+        if (data.getContractStatus() == GuardData.ContractStatus.RELEASED) return true;
+        return completeOperation(data);
+    }
+
+    private boolean finalizePendingDeletion(GuardData data, Mob mob) {
+        if (data == null || mob == null) return false;
+        if (data.getContractStatus() != GuardData.ContractStatus.DELETED) {
+            data.clearCombat();
+            mob.remove();
+            clearCompanion(data);
+            return completeOperation(data);
+        }
+        return true;
     }
 
     private void clearCompanion(GuardData data) {
@@ -1281,21 +1421,22 @@ public final class GuardManager {
         }
     }
 
-    private Location readAnchorFromPdc(PersistentDataContainer pdc) {
+    private SavedPosition readSavedAnchorFromPdc(PersistentDataContainer pdc) {
         String worldName = getString(pdc, keys.anchorWorld());
         UUID worldId = parseUuid(getString(pdc, keys.anchorWorldUuid()));
         Double x = pdc.get(keys.anchorX(), PersistentDataType.DOUBLE);
         Double y = pdc.get(keys.anchorY(), PersistentDataType.DOUBLE);
         Double z = pdc.get(keys.anchorZ(), PersistentDataType.DOUBLE);
-        World world = worldId == null ? null : Bukkit.getWorld(worldId);
-        if (world == null && worldName != null) {
-            world = Bukkit.getWorld(worldName);
-        }
-        if (world == null || x == null || y == null || z == null
+        if (x == null || y == null || z == null
                 || !Double.isFinite(x) || !Double.isFinite(y) || !Double.isFinite(z)) {
             return null;
         }
-        return new Location(world, x, y, z);
+        return new SavedPosition(worldId, worldName == null ? "" : worldName, x, y, z, 0.0f, 0.0f);
+    }
+
+    private Location readAnchorFromPdc(PersistentDataContainer pdc) {
+        SavedPosition saved = readSavedAnchorFromPdc(pdc);
+        return saved == null ? null : saved.resolve();
     }
 
     private int nextNameNumber(UUID ownerId, EntityType type) {
