@@ -2,9 +2,11 @@ package plugin.test.com.bodyGuard.guard;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.LinkedHashSet;
@@ -33,6 +35,7 @@ import plugin.test.com.bodyGuard.storage.PlayerDataStorage;
 import plugin.test.com.bodyGuard.storage.SafeYamlFile;
 import plugin.test.com.bodyGuard.util.EntityUtil;
 import plugin.test.com.bodyGuard.util.LocationUtil;
+import plugin.test.com.bodyGuard.guard.RoleDefinition;
 
 /** Owns the registry and all BodyGuard metadata operations. */
 public final class GuardManager {
@@ -50,6 +53,7 @@ public final class GuardManager {
     private final Map<String, Long> failureWarnings = new LinkedHashMap<>();
     private final Map<String, Long> retryNotBefore = new LinkedHashMap<>();
     private final Map<UUID, Integer> searchOffsets = new LinkedHashMap<>();
+    private final Set<UUID> pendingProtectionRefresh = new LinkedHashSet<>();
     private int searchBudget = 32;
     private int chunkCursor;
     private int ownerCursor;
@@ -108,6 +112,7 @@ public final class GuardManager {
                 playerDataStorage.setCompanion(entry.getKey(), null);
             }
         }
+        requestProtectionRefreshAll();
         // Ledger application or companion cleanup may have changed the in-memory
         // registry and must be persisted on the normal startup reconciliation path.
     }
@@ -209,6 +214,25 @@ public final class GuardManager {
 
     public Collection<GuardData> getAllGuardData() {
         return new ArrayList<>(guards.values());
+    }
+
+    /** Marks role-target evaluation for the next shared GuardTask tick. */
+    public void requestProtectionRefresh(UUID playerId) {
+        if (playerId == null) return;
+        for (GuardData data : guards.values()) {
+            if (data.isActiveContract() && data.isRoleProtection()) {
+                pendingProtectionRefresh.add(data.getGuardId());
+            }
+        }
+    }
+
+    /** Re-evaluates all stored role selections after configuration reload/startup. */
+    public void requestProtectionRefreshAll() {
+        for (GuardData data : guards.values()) {
+            if (data.isActiveContract() && data.isRoleProtection()) {
+                pendingProtectionRefresh.add(data.getGuardId());
+            }
+        }
     }
 
     /** Recovers marked guards that were already loaded before plugin listeners started. */
@@ -385,6 +409,10 @@ public final class GuardManager {
             quarantine(previous, "PDCの所有者UUIDが保存レジストリと一致しません");
             return null;
         }
+        if (!isProtectionPdcConsistent(previous, pdc)) {
+            quarantine(previous, "PDCの役職保護指定が保存レジストリと一致しません");
+            return null;
+        }
         String pdcMobType = getString(pdc, keys.mobType());
         if (pdcMobType == null || !mob.getType().name().equalsIgnoreCase(pdcMobType)
                 || previous.getMobType() != mob.getType()
@@ -426,6 +454,7 @@ public final class GuardManager {
             return null;
         }
         data.setFavorite(previous.isFavorite());
+        data.restoreProtection(previous.snapshotProtection());
         guards.put(entityId, data);
         dirty = true;
 
@@ -668,6 +697,248 @@ public final class GuardManager {
         return actual != null && data.getGuardId().equals(actual.getGuardId()) ? mob : null;
     }
 
+    /** Resolves the current role target on the shared main-thread task. */
+    public Player refreshProtectionTarget(GuardData data) {
+        return refreshProtectionTarget(data, getLoadedMob(data));
+    }
+
+    /**
+     * Resolves a role without ever fabricating an Entity. The remembered UUID is
+     * preferred while it is eligible; only an ineligible remembered player causes
+     * deterministic candidate selection.
+     */
+    public Player refreshProtectionTarget(GuardData data, Mob loadedMob) {
+        if (data == null || !data.isActiveContract()) return null;
+        pendingProtectionRefresh.remove(data.getGuardId());
+
+        if (!data.isRoleProtection()) {
+            Player owner = Bukkit.getPlayer(data.getOwnerId());
+            if (owner == null || !EntityUtil.isAlive(owner)
+                    || owner.getGameMode() == org.bukkit.GameMode.SPECTATOR) {
+                setProtectionState(data, GuardData.ProtectionState.TARGET_UNAVAILABLE,
+                        "所有者がオンラインではありません");
+                return null;
+            }
+            setProtectionState(data, LocationUtil.sameWorld(
+                    loadedMob == null ? null : loadedMob.getLocation(), owner.getLocation())
+                    ? GuardData.ProtectionState.SAME_WORLD : GuardData.ProtectionState.ACTIVE, null);
+            return owner;
+        }
+
+        RoleDefinition role = plugin.isRoleProtectionEnabled()
+                ? plugin.getRoleDefinition(data.getRoleId()) : null;
+        if (role == null) {
+            clearProtectionCombat(data, loadedMob);
+            setProtectionState(data, GuardData.ProtectionState.TARGET_UNAVAILABLE,
+                    plugin.isRoleProtectionEnabled()
+                            ? "役職設定が見つかりません: " + data.getRoleId()
+                            : "役職保護が設定で無効です");
+            return null;
+        }
+
+        UUID rememberedId = data.getSelectedTargetUuid();
+        Player remembered = rememberedId == null ? null : Bukkit.getPlayer(rememberedId);
+        Player selected = isEligibleRoleTarget(remembered, role) ? remembered
+                : chooseRoleTarget(data, loadedMob, role, rememberedId);
+        if (selected == null) {
+            clearProtectionCombat(data, loadedMob);
+            setProtectionState(data, GuardData.ProtectionState.TARGET_UNAVAILABLE,
+                    "適格な役職プレイヤーがいません");
+            return null;
+        }
+
+        if (!Objects.equals(rememberedId, selected.getUniqueId())
+                && !rememberProtectionTarget(data, loadedMob, selected.getUniqueId())) {
+            clearProtectionCombat(data, loadedMob);
+            setProtectionState(data, GuardData.ProtectionState.WAITING,
+                    "役職対象の選択保存に失敗しました");
+            return null;
+        }
+
+        boolean sameWorld = loadedMob != null
+                && LocationUtil.sameWorld(loadedMob.getLocation(), selected.getLocation());
+        if (!sameWorld) {
+            setProtectionState(data, GuardData.ProtectionState.WORLD_TRANSFER_PENDING,
+                    plugin.shouldTeleportDifferentWorld()
+                            ? "対象ワールドへの移動を待機しています"
+                            : "別ワールド移動は設定で無効です");
+        } else {
+            setProtectionState(data, GuardData.ProtectionState.TARGET_SELECTED, null);
+        }
+        return selected;
+    }
+
+    private Player chooseRoleTarget(GuardData data, Mob loadedMob,
+                                    RoleDefinition role, UUID rememberedId) {
+        List<Player> candidates = Bukkit.getOnlinePlayers().stream()
+                .filter(player -> isEligibleRoleTarget(player, role))
+                .toList();
+        if (candidates.isEmpty()) return null;
+
+        Location mobLocation = loadedMob == null ? null : loadedMob.getLocation();
+        boolean hasSameWorld = mobLocation != null && candidates.stream()
+                .anyMatch(player -> LocationUtil.sameWorld(mobLocation, player.getLocation()));
+        return candidates.stream()
+                .min(Comparator
+                        .comparingInt((Player player) -> hasSameWorld
+                                && LocationUtil.sameWorld(mobLocation, player.getLocation()) ? 0 : 1)
+                        .thenComparingDouble(player -> mobLocation == null
+                                || !LocationUtil.sameWorld(mobLocation, player.getLocation())
+                                ? Double.POSITIVE_INFINITY
+                                : mobLocation.distanceSquared(player.getLocation()))
+                        .thenComparingInt(player -> Objects.equals(rememberedId,
+                                player.getUniqueId()) ? 0 : 1)
+                        .thenComparing(player -> player.getUniqueId().toString()))
+                .orElse(null);
+    }
+
+    private boolean isEligibleRoleTarget(Player player, RoleDefinition role) {
+        return player != null && player.isOnline() && EntityUtil.isAlive(player)
+                && player.getGameMode() != org.bukkit.GameMode.SPECTATOR
+                && role != null && player.hasPermission(role.permission());
+    }
+
+    private boolean rememberProtectionTarget(GuardData data, Mob loadedMob, UUID targetId) {
+        GuardData.ProtectionSnapshot previous = data.snapshotProtection();
+        try {
+            if (!data.setSelectedTargetUuid(targetId)) return true;
+            if (loadedMob != null) applyPdc(loadedMob, data);
+            dirty = true;
+            if (persistNow()) return true;
+            throw new IllegalStateException("役職対象の選択保存結果を確認できません");
+        } catch (RuntimeException failure) {
+            data.restoreProtection(previous);
+            if (loadedMob != null) {
+                try {
+                    applyPdc(loadedMob, data);
+                } catch (RuntimeException rollbackFailure) {
+                    failure.addSuppressed(rollbackFailure);
+                }
+            }
+            dirty = true;
+            reportFailure("protection-selection", data.getGuardId(), failure);
+            return false;
+        }
+    }
+
+    private void setProtectionState(GuardData data, GuardData.ProtectionState state,
+                                    String reason) {
+        if (data == null) return;
+        if (data.getProtectionState() == state
+                && Objects.equals(data.getProtectionFailureReason(), reason)) return;
+        data.setProtectionState(state, reason);
+        dirty = true;
+    }
+
+    private void clearProtectionCombat(GuardData data, Mob mob) {
+        if (data == null) return;
+        data.clearCombat();
+        if (mob != null) mob.setTarget(null);
+    }
+
+    public enum ProtectionChangeResult {
+        SUCCESS,
+        NOT_FOUND,
+        NOT_OWNER,
+        ROLE_NOT_CONFIGURED,
+        NOT_LOADED,
+        SAVE_FAILED
+    }
+
+    /** Changes protection for exactly one owned, loaded guard with rollback. */
+    public ProtectionChangeResult setProtection(UUID ownerId, UUID guardId,
+                                                GuardData.ProtectionKind kind, String roleId) {
+        GuardData data = getGuardData(guardId);
+        if (data == null || !data.isActiveContract()) return ProtectionChangeResult.NOT_FOUND;
+        if (ownerId == null || !ownerId.equals(data.getOwnerId())) {
+            return ProtectionChangeResult.NOT_OWNER;
+        }
+        if (kind == GuardData.ProtectionKind.ROLE) {
+            if (!plugin.isRoleProtectionEnabled() || plugin.getRoleDefinition(roleId) == null) {
+                return ProtectionChangeResult.ROLE_NOT_CONFIGURED;
+            }
+        }
+        Mob mob = getLoadedMob(data);
+        if (mob == null || !owns(ownerId, mob)) return ProtectionChangeResult.NOT_LOADED;
+
+        GuardData.ProtectionSnapshot previous = data.snapshotProtection();
+        SavedPosition previousAnchor = data.getSavedAnchor();
+        SavedPosition previousLast = data.getSavedLast();
+        try {
+            data.setProtection(kind, roleId);
+            data.clearCombat();
+            mob.setTarget(null);
+            if (data.isRoleProtection() && data.getMode() == GuardMode.GUARD) {
+                RoleDefinition role = plugin.getRoleDefinition(data.getRoleId());
+                Player target = isEligibleRoleTarget(
+                        data.getSelectedTargetUuid() == null ? null
+                                : Bukkit.getPlayer(data.getSelectedTargetUuid()), role)
+                        ? Bukkit.getPlayer(data.getSelectedTargetUuid()) : null;
+                data.setAnchorLocation(target == null ? null : target.getLocation());
+            }
+            applyPdc(mob, data);
+            dirty = true;
+            if (!persistNow()) throw new IllegalStateException("保護設定の保存結果を確認できません");
+            return ProtectionChangeResult.SUCCESS;
+        } catch (RuntimeException failure) {
+            data.restoreProtection(previous);
+            data.setSavedPositions(previousAnchor, previousLast);
+            try {
+                applyPdc(mob, data);
+            } catch (RuntimeException rollbackFailure) {
+                failure.addSuppressed(rollbackFailure);
+            }
+            dirty = true;
+            reportFailure("protection-change", guardId, failure);
+            return ProtectionChangeResult.SAVE_FAILED;
+        }
+    }
+
+    public boolean isSelectedProtectionTarget(GuardData data, Player player) {
+        if (data == null || player == null || !data.isRoleProtection()
+                || !Objects.equals(data.getSelectedTargetUuid(), player.getUniqueId())) {
+            return false;
+        }
+        RoleDefinition role = plugin.isRoleProtectionEnabled()
+                ? plugin.getRoleDefinition(data.getRoleId()) : null;
+        return isEligibleRoleTarget(player, role);
+    }
+
+    /** Commands one selected role guard, never all guards owned by the same owner. */
+    public int commandRoleGuardsToTarget(UUID protectedTargetId, LivingEntity target,
+                                         boolean defense) {
+        if (protectedTargetId == null || target == null || !EntityUtil.isAlive(target)) return 0;
+        Player protectedPlayer = Bukkit.getPlayer(protectedTargetId);
+        if (protectedPlayer == null || !EntityUtil.isAlive(protectedPlayer)
+                || protectedPlayer.getGameMode() == org.bukkit.GameMode.SPECTATOR) return 0;
+        if (target.getUniqueId().equals(protectedTargetId)) return 0;
+        if (target instanceof Player && !plugin.shouldDefendAgainstPlayers()) return 0;
+
+        int commanded = 0;
+        for (GuardData data : getAllGuardData()) {
+            if (!data.isActiveContract() || !data.isRoleProtection()
+                    || !protectedTargetId.equals(data.getSelectedTargetUuid())) continue;
+            try {
+                Mob guard = getLoadedMob(data);
+                if (guard == null || !isSelectedProtectionTarget(data, protectedPlayer)
+                        || !LocationUtil.sameWorld(guard.getLocation(), protectedPlayer.getLocation())
+                        || !LocationUtil.sameWorld(guard.getLocation(), target.getLocation())
+                        || guard.getLocation().distanceSquared(protectedPlayer.getLocation())
+                            > plugin.getTargetRange() * plugin.getTargetRange()
+                        || guard.getLocation().distanceSquared(target.getLocation())
+                            > plugin.getTargetRange() * plugin.getTargetRange()
+                        || (defense && data.getMode() == GuardMode.STAY
+                            && !plugin.stayGuardsDefendOwner())
+                        || isForbiddenTarget(guard, target)) continue;
+                assignCombatTarget(data, guard, target);
+                commanded++;
+            } catch (RuntimeException failure) {
+                reportFailure("role-command-target", data.getGuardId(), failure);
+            }
+        }
+        return commanded;
+    }
+
     private Entity findLoadedEntityForRead(GuardData data) {
         if (data == null) return null;
         Entity entity = Bukkit.getEntity(data.getGuardId());
@@ -698,7 +969,36 @@ public final class GuardManager {
         return isMarked(pdc)
                 && data.getOwnerId().equals(parseUuid(getString(pdc, keys.owner())))
                 && data.getGuardId().equals(parseUuid(getString(pdc, keys.guardUuid())))
-                && data.getMobType().name().equalsIgnoreCase(getString(pdc, keys.mobType()));
+                && data.getMobType().name().equalsIgnoreCase(getString(pdc, keys.mobType()))
+                && isProtectionPdcConsistent(data, pdc);
+    }
+
+    /** Missing role keys are repaired from YAML; contradictory present keys are unsafe. */
+    private boolean isProtectionPdcConsistent(GuardData data, PersistentDataContainer pdc) {
+        String kindText = getString(pdc, keys.protectionKind());
+        if (kindText == null || kindText.isBlank()) return true;
+        GuardData.ProtectionKind kind;
+        try {
+            kind = GuardData.ProtectionKind.valueOf(kindText.trim().toUpperCase(
+                    java.util.Locale.ROOT));
+        } catch (IllegalArgumentException exception) {
+            return false;
+        }
+        if (kind != data.getProtectionKind()) return false;
+        if (kind == GuardData.ProtectionKind.ROLE
+                && !Objects.equals(data.getRoleId(), getString(pdc, keys.roleId()))) {
+            return false;
+        }
+        if (kind == GuardData.ProtectionKind.OWNER
+                && getString(pdc, keys.roleId()) != null) {
+            return false;
+        }
+        String selectedText = getString(pdc, keys.selectedTargetUuid());
+        UUID selected = parseUuid(selectedText);
+        if (selectedText != null && selected == null) return false;
+        if (!Objects.equals(data.getSelectedTargetUuid(), selected)) return false;
+        Long revision = pdc.get(keys.selectionRevision(), PersistentDataType.LONG);
+        return revision == null || revision.longValue() == data.getSelectionRevision();
     }
 
     public boolean isForbiddenTarget(Mob guard, LivingEntity target) {
@@ -707,6 +1007,9 @@ public final class GuardManager {
             return false;
         }
         if (target.getUniqueId().equals(guardData.getOwnerId()) && !plugin.guardsCanDamageOwner()) {
+            return true;
+        }
+        if (target instanceof Player player && isSelectedProtectionTarget(guardData, player)) {
             return true;
         }
         if (target instanceof Player && !plugin.shouldDefendAgainstPlayers()) {
@@ -776,9 +1079,16 @@ public final class GuardManager {
         SavedPosition previousAnchor = data.getSavedAnchor();
         data.setMode(mode);
         data.clearCombat();
-        Location anchor = mode == GuardMode.GUARD && guardPoint != null
-                ? guardPoint
-                : mob.getLocation();
+        Location anchor;
+        if (mode == GuardMode.FOLLOW) {
+            anchor = null;
+        } else if (mode == GuardMode.GUARD && data.isRoleProtection()) {
+            Player target = refreshProtectionTarget(data, mob);
+            anchor = target == null ? null : target.getLocation();
+        } else {
+            anchor = mode == GuardMode.GUARD && guardPoint != null
+                    ? guardPoint : mob.getLocation();
+        }
         data.setAnchorLocation(mode == GuardMode.FOLLOW ? null : anchor);
         mob.setTarget(null);
         mob.setAware(true);
@@ -1487,6 +1797,21 @@ public final class GuardManager {
         pdc.set(keys.nameNumber(), PersistentDataType.INTEGER, data.getNameNumber());
         pdc.set(keys.favorite(), PersistentDataType.BYTE, (byte) (data.isFavorite() ? 1 : 0));
         pdc.set(keys.contractGeneration(), PersistentDataType.LONG, data.getContractGeneration());
+        pdc.set(keys.protectionKind(), PersistentDataType.STRING, data.getProtectionKind().name());
+        if (data.isRoleProtection()) {
+            pdc.set(keys.roleId(), PersistentDataType.STRING, data.getRoleId());
+            if (data.getSelectedTargetUuid() == null) {
+                pdc.remove(keys.selectedTargetUuid());
+            } else {
+                pdc.set(keys.selectedTargetUuid(), PersistentDataType.STRING,
+                        data.getSelectedTargetUuid().toString());
+            }
+            pdc.set(keys.selectionRevision(), PersistentDataType.LONG, data.getSelectionRevision());
+        } else {
+            pdc.remove(keys.roleId());
+            pdc.remove(keys.selectedTargetUuid());
+            pdc.remove(keys.selectionRevision());
+        }
 
         SavedPosition anchor = data.getSavedAnchor();
         if (anchor == null) {
@@ -1569,6 +1894,10 @@ public final class GuardManager {
         pdc.remove(keys.originalAware());
         pdc.remove(keys.originalTarget());
         pdc.remove(keys.contractGeneration());
+        pdc.remove(keys.protectionKind());
+        pdc.remove(keys.roleId());
+        pdc.remove(keys.selectedTargetUuid());
+        pdc.remove(keys.selectionRevision());
     }
 
     private boolean acceptOperation(GuardData data, GuardData.OperationType type) {

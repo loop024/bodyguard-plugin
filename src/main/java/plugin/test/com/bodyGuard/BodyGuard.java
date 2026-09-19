@@ -1,9 +1,12 @@
 package plugin.test.com.bodyGuard;
 
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
+import java.util.List;
 import java.util.logging.Level;
 
 import org.bukkit.ChatColor;
@@ -25,6 +28,7 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.configuration.ConfigurationSection;
 
 import plugin.test.com.bodyGuard.command.BodyGuardCommand;
 import plugin.test.com.bodyGuard.command.BodyGuardTabCompleter;
@@ -32,6 +36,7 @@ import plugin.test.com.bodyGuard.gui.BodyGuardGui;
 import plugin.test.com.bodyGuard.guard.GuardManager;
 import plugin.test.com.bodyGuard.guard.GuardData;
 import plugin.test.com.bodyGuard.guard.GuardTask;
+import plugin.test.com.bodyGuard.guard.RoleDefinition;
 import plugin.test.com.bodyGuard.listener.CombatListener;
 import plugin.test.com.bodyGuard.listener.GuardDeathListener;
 import plugin.test.com.bodyGuard.listener.GuardFeedbackListener;
@@ -68,6 +73,7 @@ public final class BodyGuard extends JavaPlugin {
     private GuardManager guardManager;
     private OperationLedgerStorage operationLedger;
     private Set<EntityType> allowedMobTypes = Collections.emptySet();
+    private Map<String, RoleDefinition> roleDefinitions = Collections.emptyMap();
     private GuardTask guardTask;
     private BodyGuardGui gui;
     private boolean registryInitialized;
@@ -187,6 +193,10 @@ public final class BodyGuard extends JavaPlugin {
             return false;
         }
         allowedMobTypes = readAllowedMobTypes();
+        roleDefinitions = readRoleDefinitions();
+        if (guardManager != null) {
+            guardManager.requestProtectionRefreshAll();
+        }
         if (gui != null) {
             gui.restartTasks();
         }
@@ -213,6 +223,8 @@ public final class BodyGuard extends JavaPlugin {
             requireFinite(configuration, "follow.move-speed", 0.05, 1.5);
             requireFinite(configuration, "teleport.max-distance", 1.0, 4096.0);
             requireBoolean(configuration, "teleport.different-world");
+            requireBoolean(configuration, "role-protection.enabled");
+            validateRoleDefinitions(configuration);
             requireString(configuration, "menu-opener.material");
             String menuMaterial = configuration.getString("menu-opener.material", "NETHER_STAR");
             if (Material.matchMaterial(menuMaterial) == null) {
@@ -298,6 +310,52 @@ public final class BodyGuard extends JavaPlugin {
         return Collections.unmodifiableSet(result);
     }
 
+    private void validateRoleDefinitions(YamlConfiguration configuration) {
+        ConfigurationSection roles = configuration.getConfigurationSection("role-protection.roles");
+        if (roles == null) return;
+        for (String roleId : roles.getKeys(false)) {
+            if (roleId == null || !roleId.matches("[a-z0-9_-]{1,32}")) {
+                throw new IllegalArgumentException(
+                        "role-protection.rolesの役職IDが不正です: " + roleId);
+            }
+            ConfigurationSection role = roles.getConfigurationSection(roleId);
+            if (role == null) {
+                throw new IllegalArgumentException("role-protection.roles." + roleId
+                        + " はセクションではありません");
+            }
+            Object permission = role.get("permission");
+            if (!(permission instanceof String value) || value.isBlank()) {
+                throw new IllegalArgumentException("role-protection.roles." + roleId
+                        + ".permission は空にできません");
+            }
+            if (value.length() > 128) {
+                throw new IllegalArgumentException("role-protection.roles." + roleId
+                        + ".permission が長すぎます");
+            }
+            Object priority = role.get("priority", 0);
+            if (!(priority instanceof Number number)
+                    || number.doubleValue() != number.intValue()) {
+                throw new IllegalArgumentException("role-protection.roles." + roleId
+                        + ".priority は整数で指定してください");
+            }
+        }
+    }
+
+    private Map<String, RoleDefinition> readRoleDefinitions() {
+        ConfigurationSection roles = getConfig().getConfigurationSection("role-protection.roles");
+        if (roles == null) return Collections.emptyMap();
+        Map<String, RoleDefinition> result = new LinkedHashMap<>();
+        for (String roleId : roles.getKeys(false)) {
+            ConfigurationSection role = roles.getConfigurationSection(roleId);
+            if (role == null) continue;
+            String permission = role.getString("permission");
+            if (permission == null || permission.isBlank()) continue;
+            result.put(roleId, new RoleDefinition(roleId, permission,
+                    role.getInt("priority", 0)));
+        }
+        return Collections.unmodifiableMap(result);
+    }
+
     public EntityType parseEntityType(String value) {
         if (value == null || value.isBlank()) {
             return null;
@@ -327,6 +385,21 @@ public final class BodyGuard extends JavaPlugin {
 
     public Set<EntityType> getAllowedMobTypes() {
         return allowedMobTypes;
+    }
+
+    public boolean isRoleProtectionEnabled() {
+        return getConfig().getBoolean("role-protection.enabled", true);
+    }
+
+    public RoleDefinition getRoleDefinition(String roleId) {
+        return roleId == null ? null : roleDefinitions.get(roleId);
+    }
+
+    public List<RoleDefinition> getRoleDefinitions() {
+        return roleDefinitions.values().stream()
+                .sorted(java.util.Comparator.comparingInt(RoleDefinition::priority).reversed()
+                        .thenComparing(RoleDefinition::id))
+                .toList();
     }
 
     public NamespacedKeys getKeys() {
@@ -793,6 +866,10 @@ public final class BodyGuard extends JavaPlugin {
         private final org.bukkit.NamespacedKey originalAware;
         private final org.bukkit.NamespacedKey originalTarget;
         private final org.bukkit.NamespacedKey contractGeneration;
+        private final org.bukkit.NamespacedKey protectionKind;
+        private final org.bukkit.NamespacedKey roleId;
+        private final org.bukkit.NamespacedKey selectedTargetUuid;
+        private final org.bukkit.NamespacedKey selectionRevision;
         private final org.bukkit.NamespacedKey menuOpener;
 
         private NamespacedKeys(JavaPlugin plugin) {
@@ -816,6 +893,10 @@ public final class BodyGuard extends JavaPlugin {
             originalAware = new org.bukkit.NamespacedKey(plugin, "original_aware");
             originalTarget = new org.bukkit.NamespacedKey(plugin, "original_target");
             contractGeneration = new org.bukkit.NamespacedKey(plugin, "contract_generation");
+            protectionKind = new org.bukkit.NamespacedKey(plugin, "protection_kind");
+            roleId = new org.bukkit.NamespacedKey(plugin, "role_id");
+            selectedTargetUuid = new org.bukkit.NamespacedKey(plugin, "selected_target_uuid");
+            selectionRevision = new org.bukkit.NamespacedKey(plugin, "selection_revision");
             menuOpener = new org.bukkit.NamespacedKey(plugin, "menu_opener");
         }
 
@@ -839,6 +920,10 @@ public final class BodyGuard extends JavaPlugin {
         public org.bukkit.NamespacedKey originalAware() { return originalAware; }
         public org.bukkit.NamespacedKey originalTarget() { return originalTarget; }
         public org.bukkit.NamespacedKey contractGeneration() { return contractGeneration; }
+        public org.bukkit.NamespacedKey protectionKind() { return protectionKind; }
+        public org.bukkit.NamespacedKey roleId() { return roleId; }
+        public org.bukkit.NamespacedKey selectedTargetUuid() { return selectedTargetUuid; }
+        public org.bukkit.NamespacedKey selectionRevision() { return selectionRevision; }
         public org.bukkit.NamespacedKey menuOpener() { return menuOpener; }
     }
 }

@@ -19,7 +19,8 @@ import plugin.test.com.bodyGuard.guard.SavedPosition;
 /** YAML persistence for the registry that complements Entity PDC data. */
 public final class GuardStorage {
 
-    private static final int CURRENT_VERSION = 5;
+    private static final int CURRENT_VERSION = 6;
+    private static final String ROLE_ID_PATTERN = "[a-z0-9_-]{1,32}";
 
     private final JavaPlugin plugin;
     private final SafeYamlFile safeFile;
@@ -138,6 +139,8 @@ public final class GuardStorage {
         data.setMissingObservations(Math.max(0, configuration.getInt(
                 "guards." + path + ".missing-observations", 0)));
 
+        readProtection(configuration, guards, path, data);
+
         if (data.getContractStatus() == GuardData.ContractStatus.RELEASE_PENDING
                 && (parsedOperationType == null || parsedOperationType != GuardData.OperationType.RELEASE)) {
             throw new IllegalArgumentException("解除待ちなのに操作情報がありません");
@@ -146,6 +149,57 @@ public final class GuardStorage {
                 && (parsedOperationType == null || parsedOperationType != GuardData.OperationType.DELETE)) {
             throw new IllegalArgumentException("削除待ちなのに操作情報がありません");
         }
+    }
+
+    private void readProtection(YamlConfiguration configuration, ConfigurationSection guards,
+                                String path, GuardData data) {
+        String kindText = guards.getString(path + ".protection-kind", "OWNER");
+        GuardData.ProtectionKind kind;
+        try {
+            kind = GuardData.ProtectionKind.valueOf(kindText.trim().toUpperCase(
+                    java.util.Locale.ROOT));
+        } catch (RuntimeException exception) {
+            throw new IllegalArgumentException("protection-kindが不正です");
+        }
+
+        String roleId = guards.getString(path + ".role-id");
+        if (kind == GuardData.ProtectionKind.ROLE) {
+            if (roleId == null || !roleId.matches(ROLE_ID_PATTERN)) {
+                throw new IllegalArgumentException("role-idが不正です");
+            }
+        } else {
+            roleId = null;
+        }
+
+        String selectedText = guards.getString(path + ".selected-target-uuid");
+        UUID selectedTarget = null;
+        if (selectedText != null && !selectedText.isBlank()) {
+            try {
+                selectedTarget = UUID.fromString(selectedText);
+            } catch (IllegalArgumentException exception) {
+                throw new IllegalArgumentException("selected-target-uuidが不正です");
+            }
+        }
+        if (kind == GuardData.ProtectionKind.OWNER && selectedTarget != null) {
+            throw new IllegalArgumentException("OWNER保護にselected-target-uuidがあります");
+        }
+
+        long selectionRevision = nonNegativeLong(configuration,
+                "guards." + path + ".selection-revision");
+        String stateText = guards.getString(path + ".protection-state");
+        GuardData.ProtectionState state = kind == GuardData.ProtectionKind.OWNER
+                ? GuardData.ProtectionState.ACTIVE : GuardData.ProtectionState.TARGET_UNAVAILABLE;
+        if (stateText != null && !stateText.isBlank()) {
+            try {
+                state = GuardData.ProtectionState.valueOf(
+                        stateText.trim().toUpperCase(java.util.Locale.ROOT));
+            } catch (IllegalArgumentException exception) {
+                throw new IllegalArgumentException("protection-stateが不正です");
+            }
+        }
+        data.restoreProtection(new GuardData.ProtectionSnapshot(kind, roleId, selectedTarget,
+                selectionRevision, state,
+                guards.getString(path + ".protection-failure-reason")));
     }
 
     private void validateOperationState(GuardData data, UUID operationId,
@@ -298,6 +352,14 @@ public final class GuardStorage {
                 configuration.set(path + ".last-seen", data.getLastSeen());
                 configuration.set(path + ".missing-since", data.getMissingSince());
                 configuration.set(path + ".missing-observations", data.getMissingObservations());
+                configuration.set(path + ".protection-kind", data.getProtectionKind().name());
+                configuration.set(path + ".role-id", data.getRoleId());
+                configuration.set(path + ".selected-target-uuid", data.getSelectedTargetUuid() == null
+                        ? null : data.getSelectedTargetUuid().toString());
+                configuration.set(path + ".selection-revision", data.getSelectionRevision());
+                configuration.set(path + ".protection-state", data.getProtectionState().name());
+                configuration.set(path + ".protection-failure-reason",
+                        data.getProtectionFailureReason());
                 if (data.getSavedAnchor() != null) {
                     data.getSavedAnchor().write(configuration, path + ".anchor-location");
                 }
