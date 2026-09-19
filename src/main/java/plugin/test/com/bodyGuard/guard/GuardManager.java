@@ -771,9 +771,6 @@ public final class GuardManager {
                                 ? "対象ワールドへの移動を待機しています"
                                 : "別ワールド移動は設定で無効です");
             }
-        } else {
-            setProtectionState(data, GuardData.ProtectionState.TARGET_SELECTED, null);
-        }
         return selected;
     }
 
