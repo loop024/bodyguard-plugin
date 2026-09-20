@@ -21,7 +21,7 @@ import plugin.test.com.bodyGuard.guard.GuardData;
  */
 public final class OperationLedgerStorage {
 
-    private static final int CURRENT_VERSION = 1;
+    private static final int CURRENT_VERSION = StorageSchema.OPERATIONS;
 
     public record Entry(long sequence, UUID operationId, long contractGeneration,
                         UUID guardId, UUID ownerId, GuardData.OperationType type,

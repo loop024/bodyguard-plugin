@@ -65,6 +65,11 @@ public final class SafeYamlFile {
             writable = true;
             healthy = true;
             return result;
+        } catch (UnsupportedSchemaVersionException failure) {
+            writable = false;
+            healthy = false;
+            throw new IllegalStateException(file.getName()
+                    + " は未対応の新しい形式です。元ファイルを変更せず起動を中止します。", failure);
         } catch (Exception failure) {
             liveFailure = failure;
         }
@@ -130,14 +135,15 @@ public final class SafeYamlFile {
                 || number.doubleValue() != number.intValue()) {
             throw new IOException("Invalid schema version");
         }
-        int supported = switch (expectedRoot) {
-            case "guards" -> 5;
-            case "players" -> 3;
-            case "operations" -> 1;
-            default -> Integer.MAX_VALUE;
-        };
+        int supported = StorageSchema.supportedVersion(expectedRoot);
         if (number.intValue() > supported) {
-            throw new IOException("Unsupported schema version: " + number.intValue());
+            throw new UnsupportedSchemaVersionException(number.intValue());
+        }
+    }
+
+    private static final class UnsupportedSchemaVersionException extends IOException {
+        private UnsupportedSchemaVersionException(int version) {
+            super("Unsupported schema version: " + version);
         }
     }
 

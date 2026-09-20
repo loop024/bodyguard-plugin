@@ -19,7 +19,7 @@ import plugin.test.com.bodyGuard.guard.SavedPosition;
 /** YAML persistence for the registry that complements Entity PDC data. */
 public final class GuardStorage {
 
-    private static final int CURRENT_VERSION = 6;
+    private static final int CURRENT_VERSION = StorageSchema.GUARDS;
     private static final String ROLE_ID_PATTERN = "[a-z0-9_-]{1,32}";
 
     private final JavaPlugin plugin;

@@ -18,7 +18,7 @@ public final class PlayerDataStorage {
         DISMISSED
     }
 
-    private static final int CURRENT_VERSION = 3;
+    private static final int CURRENT_VERSION = StorageSchema.PLAYERS;
 
     private final JavaPlugin plugin;
     private final SafeYamlFile safeFile;
