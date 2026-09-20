@@ -49,6 +49,16 @@ public final class GuardManager {
     private final OperationLedgerStorage operationLedger;
     private final Map<UUID, GuardData> guards = new LinkedHashMap<>();
     private final Set<GuardChunk> managedChunks = new LinkedHashSet<>();
+    public enum ChunkWaitReason { DISABLED, OWNER_OFFLINE, OWNER_LIMIT, SERVER_LIMIT, SCHEDULED, UNKNOWN }
+    private final Map<UUID, ChunkWaitReason> chunkWaitReasons = new LinkedHashMap<>();
+
+    /** Last management decision, for explanation only; never requests a chunk load. */
+    public ChunkWaitReason getChunkWaitReason(GuardData data) {
+        if (!plugin.keepGuardChunksLoaded()) return ChunkWaitReason.DISABLED;
+        Player owner = Bukkit.getPlayer(data.getOwnerId());
+        if (owner == null || !owner.isOnline()) return ChunkWaitReason.OWNER_OFFLINE;
+        return chunkWaitReasons.getOrDefault(data.getGuardId(), ChunkWaitReason.UNKNOWN);
+    }
     private boolean dirty;
     private final Map<String, Long> failureWarnings = new LinkedHashMap<>();
     private final Map<String, Long> retryNotBefore = new LinkedHashMap<>();
@@ -1681,6 +1691,7 @@ public final class GuardManager {
      */
     public void updateManagedChunks() {
         searchBudget = plugin.getSearchChunksPerCycle();
+        chunkWaitReasons.clear();
         if (!plugin.keepGuardChunksLoaded()) {
             releaseManagedChunks();
             return;
@@ -1689,6 +1700,7 @@ public final class GuardManager {
         Set<GuardChunk> candidates = new LinkedHashSet<>();
         Map<UUID, Set<GuardChunk>> perOwner = new LinkedHashMap<>();
         Map<UUID, List<GuardData>> byOwner = new LinkedHashMap<>();
+        Map<UUID, GuardChunk> requestedChunks = new LinkedHashMap<>();
         for (GuardData data : guards.values()) {
             try {
                 Player owner = Bukkit.getPlayer(data.getOwnerId());
@@ -1721,9 +1733,12 @@ public final class GuardManager {
                                 location.getBlockX() >> 4, location.getBlockZ() >> 4);
                         Set<GuardChunk> ownerChunks = perOwner.computeIfAbsent(ownerId,
                                 ignored -> new LinkedHashSet<>());
-                        if (ownerChunks.size() < plugin.getOwnerChunkLimit()) {
+                        if (ownerChunks.contains(requested) || ownerChunks.size() < plugin.getOwnerChunkLimit()) {
                             ownerChunks.add(requested);
                             candidates.add(requested);
+                            requestedChunks.put(data.getGuardId(), requested);
+                        } else {
+                            chunkWaitReasons.put(data.getGuardId(), ChunkWaitReason.OWNER_LIMIT);
                         }
                     } catch (RuntimeException failure) {
                         reportFailure("chunk-plan-owner", data.getGuardId(), failure);
@@ -1743,6 +1758,10 @@ public final class GuardManager {
         for (GuardChunk key : candidates) {
             if (desired.size() >= limit) break;
             desired.add(key);
+        }
+        for (Map.Entry<UUID, GuardChunk> request : requestedChunks.entrySet()) {
+            chunkWaitReasons.put(request.getKey(), desired.contains(request.getValue())
+                    ? ChunkWaitReason.SCHEDULED : ChunkWaitReason.SERVER_LIMIT);
         }
 
         // Return obsolete tickets before checking capacity for new ones.

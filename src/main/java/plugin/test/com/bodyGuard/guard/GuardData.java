@@ -91,10 +91,14 @@ public final class GuardData {
     private boolean favorite;
     // Runtime only: not serialized to YAML or entity PDC.
     GuardMovementRecovery.Progress movementProgress;
+    private GuardMovementRecovery.State transferState = GuardMovementRecovery.State.NORMAL;
 
     public GuardMovementRecovery.State getMovementRecoveryState() {
+        if (transferState != GuardMovementRecovery.State.NORMAL) return transferState;
         return movementProgress == null ? GuardMovementRecovery.State.NORMAL : movementProgress.state;
     }
+
+    void setTransferState(GuardMovementRecovery.State state) { transferState = state; }
 
     private ProtectionKind protectionKind = ProtectionKind.OWNER;
     private String roleId;
@@ -147,7 +151,10 @@ public final class GuardData {
     public GuardMode getMode() { return mode; }
 
     public void setMode(GuardMode mode) {
-        if (mode != null) this.mode = mode;
+        if (mode != null) {
+            if (this.mode != mode) movementProgress = null;
+            this.mode = mode;
+        }
     }
 
     public String getName() { return name; }
@@ -215,7 +222,10 @@ public final class GuardData {
     }
 
     public boolean isOfflineFrozen() { return offlineFrozen; }
-    public void setOfflineFrozen(boolean offlineFrozen) { this.offlineFrozen = offlineFrozen; }
+    public void setOfflineFrozen(boolean offlineFrozen) {
+        this.offlineFrozen = offlineFrozen;
+        if (offlineFrozen) movementProgress = null;
+    }
     public boolean isFavorite() { return favorite; }
     public void setFavorite(boolean favorite) { this.favorite = favorite; }
 
@@ -238,6 +248,7 @@ public final class GuardData {
         ProtectionKind nextKind = kind == null ? ProtectionKind.OWNER : kind;
         String normalizedRole = newRoleId == null || newRoleId.isBlank() ? null : newRoleId;
         boolean changed = protectionKind != nextKind || !Objects.equals(roleId, normalizedRole);
+        if (changed) movementProgress = null;
         protectionKind = nextKind;
         roleId = nextKind == ProtectionKind.ROLE ? normalizedRole : null;
         if (nextKind == ProtectionKind.OWNER) {
@@ -256,6 +267,7 @@ public final class GuardData {
     /** Updates the remembered target and advances the monotonic selection revision. */
     public boolean setSelectedTargetUuid(UUID targetUuid) {
         if (Objects.equals(selectedTargetUuid, targetUuid)) return false;
+        movementProgress = null;
         selectedTargetUuid = targetUuid;
         selectionRevision = selectionRevision == Long.MAX_VALUE
                 ? Long.MAX_VALUE : selectionRevision + 1L;
@@ -300,6 +312,7 @@ public final class GuardData {
 
     public void setObservationStatus(ObservationStatus status) {
         observationStatus = status == null ? ObservationStatus.CHECKING : status;
+        if (observationStatus != ObservationStatus.AVAILABLE) movementProgress = null;
     }
 
     public boolean isActiveContract() { return contractStatus == ContractStatus.ACTIVE; }
@@ -433,7 +446,10 @@ public final class GuardData {
     }
 
     public void markWorldUnavailable() { observationStatus = ObservationStatus.WORLD_UNAVAILABLE; }
-    public void markUnloaded() { observationStatus = ObservationStatus.UNLOADED; }
+    public void markUnloaded() {
+        observationStatus = ObservationStatus.UNLOADED;
+        movementProgress = null;
+    }
     public void markChecking() { observationStatus = ObservationStatus.CHECKING; }
 
     public void markQuarantined(String reason) {

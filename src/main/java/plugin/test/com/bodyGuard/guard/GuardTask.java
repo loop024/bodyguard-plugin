@@ -34,6 +34,7 @@ public final class GuardTask extends BukkitRunnable {
     public void run() {
         long started = System.nanoTime();
         executions++;
+        movementRecovery.beginCycle();
         try { manager.updateManagedChunks(); }
         catch (RuntimeException failure) { manager.reportFailure("chunks", null, failure); }
         List<GuardData> guards = new ArrayList<>(manager.getAllGuardData());
@@ -44,6 +45,7 @@ public final class GuardTask extends BukkitRunnable {
             nextGuardIndex = (nextGuardIndex + 1) % guards.size();
             if (!manager.shouldRetry("tick", data.getGuardId())) continue;
             movementRecovery.begin();
+            data.setTransferState(GuardMovementRecovery.State.NORMAL);
             try {
                 tickGuard(data);
                 manager.clearFailure("tick", data.getGuardId());
@@ -390,7 +392,7 @@ public final class GuardTask extends BukkitRunnable {
     private void teleportNearOwner(GuardData data, Mob mob, Location ownerLocation) {
         Location destination = LocationUtil.findSafeLocation(
                 ownerLocation, Math.floorMod(data.getGuardId().hashCode(), 13), mob);
-        if (destination == null || !mob.teleport(destination)) {
+        if (!teleportSafely(data, mob, destination)) {
             return;
         }
         data.clearCombat();
@@ -403,9 +405,9 @@ public final class GuardTask extends BukkitRunnable {
         if (targetLocation == null || targetLocation.getWorld() == null) return;
         Location destination = LocationUtil.findSafeLocation(
                 targetLocation, Math.floorMod(data.getGuardId().hashCode(), 13), mob);
-        if (destination == null || !mob.teleport(destination)) {
+        if (!teleportSafely(data, mob, destination)) {
             manager.setProtectionRuntimeState(data, GuardData.ProtectionState.WAITING,
-                    "対象ワールドの安全地点が見つかりません");
+                    destination == null ? "対象付近の安全地点が見つかりません" : "対象付近への移動が許可されませんでした");
             manager.reportFailure("role-transfer", data.getGuardId(),
                     new IllegalStateException("役職対象付近の安全地点への移動に失敗しました"));
             return;
@@ -423,13 +425,26 @@ public final class GuardTask extends BukkitRunnable {
     private void teleportToAnchor(GuardData data, Mob mob, Location anchor) {
         Location destination = LocationUtil.findSafeLocation(
                 anchor, Math.floorMod(data.getGuardId().hashCode(), 13), mob);
-        if (destination == null || !mob.teleport(destination)) {
+        if (!teleportSafely(data, mob, destination)) {
             return;
         }
         data.clearCombat();
         mob.setTarget(null);
         data.setLastLocation(destination);
         manager.markDirty();
+    }
+
+    private boolean teleportSafely(GuardData data, Mob mob, Location destination) {
+        if (destination == null) {
+            data.setTransferState(GuardMovementRecovery.State.NO_SAFE_DESTINATION);
+            return false;
+        }
+        if (!mob.teleport(destination)) {
+            data.setTransferState(GuardMovementRecovery.State.TELEPORT_REJECTED);
+            return false;
+        }
+        LocationUtil.stopHorizontal(mob);
+        return true;
     }
 
     private void freeze(Mob mob, GuardData data) {

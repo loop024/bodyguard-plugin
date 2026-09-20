@@ -41,6 +41,7 @@ import org.bukkit.scheduler.BukkitTask;
 import plugin.test.com.bodyGuard.BodyGuard;
 import plugin.test.com.bodyGuard.command.BodyGuardCommand;
 import plugin.test.com.bodyGuard.guard.GuardData;
+import plugin.test.com.bodyGuard.guard.GuardStatusGuidance;
 import plugin.test.com.bodyGuard.guard.GuardManager;
 import plugin.test.com.bodyGuard.guard.GuardMode;
 import plugin.test.com.bodyGuard.guard.RoleDefinition;
@@ -1646,6 +1647,7 @@ public final class BodyGuardGui implements Listener {
                 Map.of("mode", data.getMode().japaneseName())));
         if (mob != null) {
             lore.add(statusLine(player, mob));
+            lore.addAll(GuardStatusGuidance.lines(plugin, data, mob));
         }
         lore.add(" ");
         lore.add(text("gui.guard-click", "&b左クリック &7: 詳細を開く"));
@@ -1793,6 +1795,7 @@ public final class BodyGuardGui implements Listener {
                         ? text("gui.detail-health-unknown", "&7HP: &f不明（推測しません）")
                         : text("gui.detail-health", "&7HP: &f{health}", Map.of("health", health)));
                 lore.add(statusLine(player, mob));
+                lore.addAll(GuardStatusGuidance.lines(plugin, data, mob));
                 addHealthBar(lore, mob);
             }
             lore.add(" ");
@@ -1877,7 +1880,7 @@ public final class BodyGuardGui implements Listener {
         lore.add(text("gui.protection-target", "&7対象: &f{target}",
                 Map.of("target", targetName)));
         lore.add(text("gui.protection-state", "&7状態: &f{state}",
-                Map.of("state", data.getProtectionState().name())));
+                Map.of("state", GuardStatusGuidance.protectionState(data.getProtectionState()))));
         if (data.getProtectionFailureReason() != null) {
             lore.add(text("gui.protection-reason", "&e保留理由: &f{reason}",
                     Map.of("reason", data.getProtectionFailureReason())));
@@ -1965,21 +1968,7 @@ public final class BodyGuardGui implements Listener {
 
     private void addUnavailableLore(List<String> lore, GuardData data) {
         if (data == null) return;
-        lore.add("§7状態: §e" + manager.status(data).label());
-        plugin.test.com.bodyGuard.guard.SavedPosition last = data.getSavedLast();
-        if (last != null) {
-            lore.add("§7最終位置: §f" + last.worldName() + " " + (int) Math.floor(last.x())
-                    + ", " + (int) Math.floor(last.y()) + ", " + (int) Math.floor(last.z()));
-        }
-        lore.add("§7最終確認: §f" + (data.getLastSeen() == 0 ? "記録なし"
-                : java.time.format.DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm:ss")
-                .withZone(java.time.ZoneId.systemDefault()).format(java.time.Instant.ofEpochMilli(data.getLastSeen()))));
-        lore.add(switch (manager.status(data)) {
-            case WORLD_UNAVAILABLE -> "§e管理者にワールドの読み込みを依頼してください。";
-            case MISSING -> "§e最終位置で確認できません。近くを探し、不要なら契約解除してください。";
-            case UNLOADED -> "§7最終位置に近づくと再確認できます。チャンク維持の上限・設定も確認してください。";
-            default -> "§7少し待って「一覧を整理」を押してください。";
-        });
+        lore.addAll(GuardStatusGuidance.lines(plugin, data, null));
     }
     private void addHealthBar(List<String> lore, Mob mob) {
         HealthInfo health = healthInfo(mob);

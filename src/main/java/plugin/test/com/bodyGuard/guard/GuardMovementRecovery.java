@@ -39,6 +39,7 @@ public final class GuardMovementRecovery {
     private final BodyGuard plugin;
     private final GuardManager manager;
     private boolean requested;
+    private int remainingAttempts;
 
     public GuardMovementRecovery(BodyGuard plugin, GuardManager manager) {
         this.plugin = plugin;
@@ -46,6 +47,7 @@ public final class GuardMovementRecovery {
     }
 
     public void begin() { requested = false; }
+    public void beginCycle() { remainingAttempts = 2; }
 
     public void finish(GuardData data) {
         if (!requested) data.movementProgress = null;
@@ -88,6 +90,11 @@ public final class GuardMovementRecovery {
         }
         p.samples++;
         if (tick >= p.retryAt && p.samples >= 3 && tick - p.since >= plugin.getMovementStuckTicks()) {
+            if (remainingAttempts <= 0) {
+                LocationUtil.moveToward(mob, destination, plugin.getFollowMoveSpeed());
+                return;
+            }
+            remainingAttempts--;
             if (p.sidestep == null) {
                 Location side = findSidestep(mob, destination, data.getGuardId().hashCode());
                 // A sentinel also records that a sidestep was attempted but no safe path existed.
