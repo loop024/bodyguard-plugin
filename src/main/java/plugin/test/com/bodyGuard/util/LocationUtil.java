@@ -48,8 +48,18 @@ public final class LocationUtil {
         return findSafeLocation(center, preferredIndex, entity.getWidth(), entity.getHeight(), entity);
     }
 
+    public static Location findSafeLocationWithin(Location center, int preferredIndex,
+                                                   Entity entity, double radius) {
+        return findSafeLocation(center, preferredIndex, entity.getWidth(), entity.getHeight(), entity, radius);
+    }
+
     private static Location findSafeLocation(Location center, int preferredIndex,
                                              double width, double height, Entity ignoredEntity) {
+        return findSafeLocation(center, preferredIndex, width, height, ignoredEntity, Double.POSITIVE_INFINITY);
+    }
+
+    private static Location findSafeLocation(Location center, int preferredIndex,
+                                             double width, double height, Entity ignoredEntity, double radius) {
         if (center == null || center.getWorld() == null || !isFinite(center)
                 || !Double.isFinite(width) || !Double.isFinite(height)
                 || width <= 0.0 || height <= 0.0) return null;
@@ -66,10 +76,26 @@ public final class LocationUtil {
                         || y + Math.ceil(height) >= center.getWorld().getMaxHeight()) continue;
                 Location result = new Location(center.getWorld(), x + 0.5, y, z + 0.5,
                         center.getYaw(), center.getPitch());
+                if (result.distanceSquared(center) > radius * radius) continue;
                 if (isSafeVolume(result, width, height, ignoredEntity)) return result;
             }
         }
         return null;
+    }
+
+    /** A short, flat sidestep only; sample the entire body path without loading chunks. */
+    public static boolean isSafeStep(Entity entity, Location destination) {
+        Location start = entity.getLocation();
+        if (!sameWorld(start, destination) || !isFinite(destination)
+                || start.distanceSquared(destination) > 4.0) return false;
+        for (int step = 1; step <= 8; step++) {
+            Location sample = start.clone().add(destination.toVector().subtract(start.toVector())
+                    .multiply(step / 8.0));
+            if (sample.getY() < sample.getWorld().getMinHeight() + 1
+                    || sample.getY() + Math.ceil(entity.getHeight()) >= sample.getWorld().getMaxHeight()
+                    || !isSafeVolume(sample, entity.getWidth(), entity.getHeight(), entity)) return false;
+        }
+        return true;
     }
 
     private static boolean isSafeVolume(Location location, double width, double height,

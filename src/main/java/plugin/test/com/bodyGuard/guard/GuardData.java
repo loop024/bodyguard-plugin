@@ -89,6 +89,12 @@ public final class GuardData {
     private UUID combatTargetId;
     private boolean offlineFrozen;
     private boolean favorite;
+    // Runtime only: not serialized to YAML or entity PDC.
+    GuardMovementRecovery.Progress movementProgress;
+
+    public GuardMovementRecovery.State getMovementRecoveryState() {
+        return movementProgress == null ? GuardMovementRecovery.State.NORMAL : movementProgress.state;
+    }
 
     private ProtectionKind protectionKind = ProtectionKind.OWNER;
     private String roleId;

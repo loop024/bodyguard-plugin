@@ -20,12 +20,14 @@ public final class GuardTask extends BukkitRunnable {
 
     private final BodyGuard plugin;
     private final GuardManager manager;
+    private final GuardMovementRecovery movementRecovery;
     private long executions;
     private int nextGuardIndex;
 
     public GuardTask(BodyGuard plugin, GuardManager manager) {
         this.plugin = plugin;
         this.manager = manager;
+        this.movementRecovery = new GuardMovementRecovery(plugin, manager);
     }
 
     @Override
@@ -41,11 +43,14 @@ public final class GuardTask extends BukkitRunnable {
             GuardData data = guards.get(nextGuardIndex % guards.size());
             nextGuardIndex = (nextGuardIndex + 1) % guards.size();
             if (!manager.shouldRetry("tick", data.getGuardId())) continue;
+            movementRecovery.begin();
             try {
                 tickGuard(data);
                 manager.clearFailure("tick", data.getGuardId());
             } catch (RuntimeException failure) {
                 manager.reportFailure("tick", data.getGuardId(), failure);
+            } finally {
+                movementRecovery.finish(data);
             }
         }
         if (executions % 20L == 0L) {
@@ -186,7 +191,7 @@ public final class GuardTask extends BukkitRunnable {
 
         double startDistance = plugin.getFollowStartDistance();
         if (distanceSquared >= startDistance * startDistance && !activeCombat) {
-            LocationUtil.moveToward(mob, ownerLocation, plugin.getFollowMoveSpeed());
+            movementRecovery.move(data, mob, ownerLocation, executions * 10L);
         } else if (!activeCombat) {
             LocationUtil.stopHorizontal(mob);
         }
@@ -221,7 +226,7 @@ public final class GuardTask extends BukkitRunnable {
         }
         double startDistance = plugin.getFollowStartDistance();
         if (distanceSquared >= startDistance * startDistance && !activeCombat) {
-            LocationUtil.moveToward(mob, targetLocation, plugin.getFollowMoveSpeed());
+            movementRecovery.move(data, mob, targetLocation, executions * 10L);
         } else if (!activeCombat) {
             LocationUtil.stopHorizontal(mob);
         }
@@ -249,7 +254,7 @@ public final class GuardTask extends BukkitRunnable {
         if (distanceSquared >= returnDistance * returnDistance) {
             teleportToAnchor(data, mob, anchor);
         } else if (distanceSquared > 2.25) {
-            LocationUtil.moveToward(mob, anchor, plugin.getFollowMoveSpeed());
+            movementRecovery.move(data, mob, anchor, executions * 10L);
         } else {
             LocationUtil.stopHorizontal(mob);
         }
@@ -294,7 +299,7 @@ public final class GuardTask extends BukkitRunnable {
         if (distanceSquared > radius * radius) {
             data.clearCombat();
             mob.setTarget(null);
-            LocationUtil.moveToward(mob, anchor, plugin.getFollowMoveSpeed());
+            movementRecovery.move(data, mob, anchor, executions * 10L);
             return;
         }
 
@@ -350,7 +355,7 @@ public final class GuardTask extends BukkitRunnable {
         if (distanceSquared > radius * radius) {
             data.clearCombat();
             mob.setTarget(null);
-            LocationUtil.moveToward(mob, anchor, plugin.getFollowMoveSpeed());
+            movementRecovery.move(data, mob, anchor, executions * 10L);
             return;
         }
         if (combatTarget != null && data.isInCombat()) return;

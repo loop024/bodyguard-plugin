@@ -249,6 +249,9 @@ public final class BodyGuard extends JavaPlugin {
             requireFinite(configuration, "follow.start-distance", 0.0, 1024.0);
             requireFinite(configuration, "follow.teleport-distance", 1.0, 4096.0);
             requireFinite(configuration, "follow.move-speed", 0.05, 1.5);
+            requireBoolean(configuration, "movement-recovery.enabled");
+            requireInteger(configuration, "movement-recovery.stuck-seconds", 2, 60);
+            requireInteger(configuration, "movement-recovery.retry-seconds", 5, 300);
             requireFinite(configuration, "teleport.max-distance", 1.0, 4096.0);
             requireBoolean(configuration, "teleport.different-world");
             requireBoolean(configuration, "role-protection.enabled");
@@ -484,6 +487,18 @@ public final class BodyGuard extends JavaPlugin {
 
     public double getFollowMoveSpeed() {
         return doubleSetting("follow.move-speed", 0.32, 0.05, 1.5);
+    }
+
+    public boolean isMovementRecoveryEnabled() {
+        return getConfig().getBoolean("movement-recovery.enabled", true);
+    }
+
+    public int getMovementStuckTicks() {
+        return intSetting("movement-recovery.stuck-seconds", 3, 2, 60) * 20;
+    }
+
+    public int getMovementRetryTicks() {
+        return intSetting("movement-recovery.retry-seconds", 10, 5, 300) * 20;
     }
 
     public boolean shouldTeleportDifferentWorld() {
