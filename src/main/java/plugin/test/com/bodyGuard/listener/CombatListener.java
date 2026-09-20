@@ -2,7 +2,6 @@ package plugin.test.com.bodyGuard.listener;
 
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
-import org.bukkit.entity.Mob;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -15,7 +14,6 @@ import org.bukkit.entity.Projectile;
 import plugin.test.com.bodyGuard.BodyGuard;
 import plugin.test.com.bodyGuard.guard.GuardData;
 import plugin.test.com.bodyGuard.guard.GuardManager;
-import plugin.test.com.bodyGuard.guard.CombatPolicy;
 import plugin.test.com.bodyGuard.util.EntityUtil;
 
 /** Handles owner defense, owner attack assistance, and every friendly-fire path. */
@@ -35,11 +33,6 @@ public final class CombatListener implements Listener {
         Entity source = EntityUtil.resolveDamageSource(event.getDamager());
         GuardData victimGuard = manager.getGuardData(victim);
         GuardData sourceGuard = manager.getGuardData(source);
-
-        if (sourceGuard != null && sourceGuard.getTactics().policy() == CombatPolicy.PASSIVE) {
-            event.setCancelled(true);
-            return;
-        }
 
         if (victim instanceof Player player && sourceGuard != null
                 && manager.isFriend(sourceGuard.getOwnerId(), player.getUniqueId())) {
@@ -79,12 +72,6 @@ public final class CombatListener implements Listener {
         }
 
         LivingEntity livingSource = source instanceof LivingEntity living ? living : null;
-        if (victimGuard != null && victim instanceof Mob guard && livingSource != null
-                && victimGuard.getTactics().policy() != CombatPolicy.PASSIVE
-                && victimGuard.getTactics().policy() != CombatPolicy.LEGACY
-                && !manager.isForbiddenTarget(guard, livingSource)) {
-            manager.assignCombatTarget(victimGuard, guard, livingSource);
-        }
         if (victim instanceof Player owner
                 && plugin.shouldDefendOwner()
                 && livingSource != null) {
@@ -121,10 +108,6 @@ public final class CombatListener implements Listener {
         if (sourceGuard == null) {
             return;
         }
-        if (sourceGuard.getTactics().policy() == CombatPolicy.PASSIVE) {
-            event.setCancelled(true);
-            return;
-        }
         GuardData hitGuard = manager.getGuardData(event.getHitEntity());
         boolean sameOwnerGuard = hitGuard != null
                 && sourceGuard.getOwnerId().equals(hitGuard.getOwnerId());
@@ -156,11 +139,6 @@ public final class CombatListener implements Listener {
                 ? null : event.getDamageSource().getCausingEntity();
         GuardData victimGuard = manager.getGuardData(event.getEntity());
         GuardData sourceGuard = manager.getGuardData(source);
-
-        if (sourceGuard != null && sourceGuard.getTactics().policy() == CombatPolicy.PASSIVE) {
-            event.setCancelled(true);
-            return;
-        }
 
         if (event.getEntity() instanceof Player player && sourceGuard != null
                 && manager.isFriend(sourceGuard.getOwnerId(), player.getUniqueId())) {

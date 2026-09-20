@@ -22,7 +22,6 @@ import org.bukkit.util.Vector;
 import plugin.test.com.bodyGuard.BodyGuard;
 import plugin.test.com.bodyGuard.gui.BodyGuardGui;
 import plugin.test.com.bodyGuard.guard.GuardData;
-import plugin.test.com.bodyGuard.guard.GuardStatusGuidance;
 import plugin.test.com.bodyGuard.guard.GuardManager;
 import plugin.test.com.bodyGuard.guard.GuardMode;
 import plugin.test.com.bodyGuard.storage.SafeYamlFile;
@@ -126,7 +125,7 @@ public final class BodyGuardCommand implements CommandExecutor {
             messages.send(sender, "protect-status-header", "&b[BodyGuard] 保護設定");
             messages.send(sender, "protect-status-setting",
                     "&7設定: &f{setting} &7/ 状態: &f{state}",
-                    Map.of("setting", configured, "state", GuardStatusGuidance.protectionState(data.getProtectionState())));
+                    Map.of("setting", configured, "state", data.getProtectionState().name()));
             messages.send(sender, "protect-status-target", "&7現在の対象: &f{target}",
                     Map.of("target", targetName));
             if (data.getProtectionFailureReason() != null) {
@@ -589,9 +588,6 @@ public final class BodyGuardCommand implements CommandExecutor {
                     "status", status,
                     "health", healthText
             ));
-            for (String line : GuardStatusGuidance.lines(plugin, data, loadedMob)) {
-                sender.sendMessage("  " + line);
-            }
         }
         messages.send(sender, "list-total", Map.of("count", String.valueOf(guards.size())));
         return true;
@@ -627,20 +623,12 @@ public final class BodyGuardCommand implements CommandExecutor {
                         "quarantine", String.valueOf(snapshot.quarantined())));
         messages.send(sender, "status-storage",
                 "&7護衛保存: &f{result} &7/ プレイヤー保存: &f{players} &7/ 台帳保存: &f{ledgerResult} &7/ 最終成功: &f{saved} &7/ 台帳: &f{ledger}件",
-                Map.of("result", GuardStatusGuidance.saveResult(snapshot.lastSaveResult()),
-                        "players", GuardStatusGuidance.saveResult(snapshot.playerSaveResult()),
-                        "ledgerResult", GuardStatusGuidance.saveResult(snapshot.ledgerSaveResult()),
-                        "saved", GuardStatusGuidance.time(snapshot.lastSaved()),
+                Map.of("result", snapshot.lastSaveResult().name(),
+                        "players", snapshot.playerSaveResult().name(),
+                        "ledgerResult", snapshot.ledgerSaveResult().name(),
+                        "saved", snapshot.lastSaved() <= 0 ? "記録なし"
+                                : String.valueOf(snapshot.lastSaved()),
                         "ledger", String.valueOf(snapshot.ledgerEntries())));
-        if (snapshot.unloaded() > 0 || snapshot.checking() > 0 || snapshot.missing() > 0
-                || snapshot.worldUnavailable() > 0 || snapshot.quarantined() > 0) {
-            messages.send(sender, "status-next-action",
-                    "&e護衛ごとの理由と対応は /bg list または護衛の詳細画面で確認できます。サーバー診断では各所有者の一覧を確認してください。");
-        }
-        if (!manager.isStorageHealthy()) {
-            messages.send(sender, "status-storage-action",
-                    "&c保存状態を確認できません。管理者は /bg status server とコンソールで保存先・失敗理由を確認してください。");
-        }
         if (server) {
             messages.send(sender, "status-timings",
                     "&7直近の管理周期: &f{cycle} ms &7/ 護衛保存: &f{save} ms",

@@ -89,57 +89,6 @@ public final class GuardData {
     private UUID combatTargetId;
     private boolean offlineFrozen;
     private boolean favorite;
-    private GuardTactics tactics = GuardTactics.DEFAULT;
-    private int patrolIndex;
-    private long pursuitStartedTick = -1L;
-    private long targetLastSeenTick = -1L;
-    private long retreatUntilTick;
-    private UUID pursuitTarget;
-    private long lastAiUpdateNanos;
-    private long nextAiTick;
-
-    public GuardTactics getTactics() { return tactics; }
-    public void setTactics(GuardTactics tactics) {
-        GuardTactics next = Objects.requireNonNull(tactics);
-        if (this.tactics.equals(next)) return;
-        boolean pointsChanged = !this.tactics.points().equals(next.points());
-        boolean routeChanged = pointsChanged || this.tactics.patrol() != next.patrol();
-        boolean policyChanged = this.tactics.policy() != next.policy();
-        this.tactics = next;
-        if (routeChanged) {
-            if (pointsChanged) patrolIndex = 0;
-            movementProgress = null;
-        }
-        if (policyChanged && next.policy() == CombatPolicy.PASSIVE) clearCombatTarget();
-    }
-    public int getPatrolIndex() { return patrolIndex; }
-    public void advancePatrol() { patrolIndex = (patrolIndex + 1) % Math.max(1, tactics.points().size()); }
-    public long getLastAiUpdateNanos() { return lastAiUpdateNanos; }
-    public void setLastAiUpdateNanos(long value) { lastAiUpdateNanos = value; }
-    public long getNextAiTick() { return nextAiTick; }
-    public void setNextAiTick(long value) { nextAiTick = value; }
-    public boolean isRetreating(long tick) { return tick < retreatUntilTick; }
-    public void retreat(long tick, long durationTicks) {
-        clearCombat();
-        retreatUntilTick = tick + Math.max(1L, durationTicks);
-    }
-    public boolean pursuitExpired(UUID target, boolean visible, long tick, long maxTicks, long unseenTicks) {
-        Objects.requireNonNull(target, "target");
-        if (pursuitStartedTick < 0L) pursuitStartedTick = tick;
-        if (pursuitTarget == null || !pursuitTarget.equals(target)) pursuitTarget = target;
-        if (targetLastSeenTick < 0L || visible) targetLastSeenTick = tick;
-        return tick - pursuitStartedTick >= maxTicks || tick - targetLastSeenTick >= unseenTicks;
-    }
-    // Runtime only: not serialized to YAML or entity PDC.
-    GuardMovementRecovery.Progress movementProgress;
-    private GuardMovementRecovery.State transferState = GuardMovementRecovery.State.NORMAL;
-
-    public GuardMovementRecovery.State getMovementRecoveryState() {
-        if (transferState != GuardMovementRecovery.State.NORMAL) return transferState;
-        return movementProgress == null ? GuardMovementRecovery.State.NORMAL : movementProgress.state;
-    }
-
-    void setTransferState(GuardMovementRecovery.State state) { transferState = state; }
 
     private ProtectionKind protectionKind = ProtectionKind.OWNER;
     private String roleId;
@@ -192,10 +141,7 @@ public final class GuardData {
     public GuardMode getMode() { return mode; }
 
     public void setMode(GuardMode mode) {
-        if (mode != null) {
-            if (this.mode != mode) movementProgress = null;
-            this.mode = mode;
-        }
+        if (mode != null) this.mode = mode;
     }
 
     public String getName() { return name; }
@@ -258,23 +204,12 @@ public final class GuardData {
     public void setCombatTargetId(UUID targetId) { combatTargetId = targetId; }
 
     public void clearCombat() {
-        clearCombatTarget();
-        pursuitTarget = null;
-        pursuitStartedTick = -1L;
-        targetLastSeenTick = -1L;
-    }
-
-    /** Cancels an individual command without restarting the pursuit episode. */
-    public void clearCombatTarget() {
         combatTargetId = null;
         combatUntilMillis = 0L;
     }
 
     public boolean isOfflineFrozen() { return offlineFrozen; }
-    public void setOfflineFrozen(boolean offlineFrozen) {
-        this.offlineFrozen = offlineFrozen;
-        if (offlineFrozen) movementProgress = null;
-    }
+    public void setOfflineFrozen(boolean offlineFrozen) { this.offlineFrozen = offlineFrozen; }
     public boolean isFavorite() { return favorite; }
     public void setFavorite(boolean favorite) { this.favorite = favorite; }
 
@@ -297,7 +232,6 @@ public final class GuardData {
         ProtectionKind nextKind = kind == null ? ProtectionKind.OWNER : kind;
         String normalizedRole = newRoleId == null || newRoleId.isBlank() ? null : newRoleId;
         boolean changed = protectionKind != nextKind || !Objects.equals(roleId, normalizedRole);
-        if (changed) movementProgress = null;
         protectionKind = nextKind;
         roleId = nextKind == ProtectionKind.ROLE ? normalizedRole : null;
         if (nextKind == ProtectionKind.OWNER) {
@@ -316,7 +250,6 @@ public final class GuardData {
     /** Updates the remembered target and advances the monotonic selection revision. */
     public boolean setSelectedTargetUuid(UUID targetUuid) {
         if (Objects.equals(selectedTargetUuid, targetUuid)) return false;
-        movementProgress = null;
         selectedTargetUuid = targetUuid;
         selectionRevision = selectionRevision == Long.MAX_VALUE
                 ? Long.MAX_VALUE : selectionRevision + 1L;
@@ -361,7 +294,6 @@ public final class GuardData {
 
     public void setObservationStatus(ObservationStatus status) {
         observationStatus = status == null ? ObservationStatus.CHECKING : status;
-        if (observationStatus != ObservationStatus.AVAILABLE) movementProgress = null;
     }
 
     public boolean isActiveContract() { return contractStatus == ContractStatus.ACTIVE; }
@@ -495,10 +427,7 @@ public final class GuardData {
     }
 
     public void markWorldUnavailable() { observationStatus = ObservationStatus.WORLD_UNAVAILABLE; }
-    public void markUnloaded() {
-        observationStatus = ObservationStatus.UNLOADED;
-        movementProgress = null;
-    }
+    public void markUnloaded() { observationStatus = ObservationStatus.UNLOADED; }
     public void markChecking() { observationStatus = ObservationStatus.CHECKING; }
 
     public void markQuarantined(String reason) {

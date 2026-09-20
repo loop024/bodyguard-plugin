@@ -20,25 +20,11 @@ public final class MessageUtil {
     private final JavaPlugin plugin;
     private final File file;
     private YamlConfiguration configuration;
-    private final YamlConfiguration bundledMobMessages;
 
     public MessageUtil(JavaPlugin plugin) {
         this.plugin = plugin;
         this.file = new File(plugin.getDataFolder(), "messages.yml");
-        this.bundledMobMessages = loadBundledMobMessages();
         reload();
-    }
-
-    private YamlConfiguration loadBundledMobMessages() {
-        try (java.io.InputStream stream = plugin.getResource("messages.yml")) {
-            if (stream != null) {
-                return YamlConfiguration.loadConfiguration(new java.io.InputStreamReader(
-                        stream, java.nio.charset.StandardCharsets.UTF_8));
-            }
-        } catch (IOException failure) {
-            plugin.getLogger().warning("同梱Mob表示の読み込みに失敗しました: " + failure.getMessage());
-        }
-        return new YamlConfiguration();
     }
 
     public void reload() {
@@ -191,16 +177,10 @@ public final class MessageUtil {
 
     public String get(String key, String fallback) {
         String value = configuration.getString(key);
-        if (value == null && !configuration.contains(key) && key.startsWith("mob-names.")) {
-            value = bundledMobMessages.getString(key);
-        }
         return value == null ? fallback : value;
     }
 
     public List<String> getList(String key) {
-        if (!configuration.contains(key) && key.startsWith("mob-features.")) {
-            return bundledMobMessages.getStringList(key);
-        }
         List<String> values = configuration.getStringList(key);
         return values == null ? List.of() : values;
     }

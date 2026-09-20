@@ -20,21 +20,18 @@ public final class GuardTask extends BukkitRunnable {
 
     private final BodyGuard plugin;
     private final GuardManager manager;
-    private final GuardMovementRecovery movementRecovery;
     private long executions;
     private int nextGuardIndex;
 
     public GuardTask(BodyGuard plugin, GuardManager manager) {
         this.plugin = plugin;
         this.manager = manager;
-        this.movementRecovery = new GuardMovementRecovery(plugin, manager);
     }
 
     @Override
     public void run() {
         long started = System.nanoTime();
         executions++;
-        movementRecovery.beginCycle();
         try { manager.updateManagedChunks(); }
         catch (RuntimeException failure) { manager.reportFailure("chunks", null, failure); }
         List<GuardData> guards = new ArrayList<>(manager.getAllGuardData());
@@ -44,15 +41,11 @@ public final class GuardTask extends BukkitRunnable {
             GuardData data = guards.get(nextGuardIndex % guards.size());
             nextGuardIndex = (nextGuardIndex + 1) % guards.size();
             if (!manager.shouldRetry("tick", data.getGuardId())) continue;
-            movementRecovery.begin();
-            data.setTransferState(GuardMovementRecovery.State.NORMAL);
             try {
                 tickGuard(data);
                 manager.clearFailure("tick", data.getGuardId());
             } catch (RuntimeException failure) {
                 manager.reportFailure("tick", data.getGuardId(), failure);
-            } finally {
-                movementRecovery.finish(data);
             }
         }
         if (executions % 20L == 0L) {
@@ -148,13 +141,6 @@ public final class GuardTask extends BukkitRunnable {
             mob.setTarget(null);
         }
         LivingEntity target = mob.getTarget();
-        CombatPolicy policy = data.getTactics().policy();
-        if (target != null && (policy == CombatPolicy.PASSIVE
-                || ((policy == CombatPolicy.RETALIATE || policy == CombatPolicy.ASSIST)
-                    && (commanded == null || !commanded.equals(target))))) {
-            mob.setTarget(null);
-            return null;
-        }
         if (target == null || !EntityUtil.isAlive(target)) {
             if (target != null) {
                 mob.setTarget(null);
@@ -200,7 +186,7 @@ public final class GuardTask extends BukkitRunnable {
 
         double startDistance = plugin.getFollowStartDistance();
         if (distanceSquared >= startDistance * startDistance && !activeCombat) {
-            movementRecovery.move(data, mob, ownerLocation, executions * 10L);
+            LocationUtil.moveToward(mob, ownerLocation, plugin.getFollowMoveSpeed());
         } else if (!activeCombat) {
             LocationUtil.stopHorizontal(mob);
         }
@@ -235,7 +221,7 @@ public final class GuardTask extends BukkitRunnable {
         }
         double startDistance = plugin.getFollowStartDistance();
         if (distanceSquared >= startDistance * startDistance && !activeCombat) {
-            movementRecovery.move(data, mob, targetLocation, executions * 10L);
+            LocationUtil.moveToward(mob, targetLocation, plugin.getFollowMoveSpeed());
         } else if (!activeCombat) {
             LocationUtil.stopHorizontal(mob);
         }
@@ -263,7 +249,7 @@ public final class GuardTask extends BukkitRunnable {
         if (distanceSquared >= returnDistance * returnDistance) {
             teleportToAnchor(data, mob, anchor);
         } else if (distanceSquared > 2.25) {
-            movementRecovery.move(data, mob, anchor, executions * 10L);
+            LocationUtil.moveToward(mob, anchor, plugin.getFollowMoveSpeed());
         } else {
             LocationUtil.stopHorizontal(mob);
         }
@@ -308,7 +294,7 @@ public final class GuardTask extends BukkitRunnable {
         if (distanceSquared > radius * radius) {
             data.clearCombat();
             mob.setTarget(null);
-            movementRecovery.move(data, mob, anchor, executions * 10L);
+            LocationUtil.moveToward(mob, anchor, plugin.getFollowMoveSpeed());
             return;
         }
 
@@ -316,8 +302,7 @@ public final class GuardTask extends BukkitRunnable {
             return;
         }
 
-        LivingEntity nearest = allowsInterception(data)
-                ? findNearestHostile(mob, anchor, plugin.getGuardRadius()) : null;
+        LivingEntity nearest = findNearestHostile(mob, anchor, plugin.getGuardRadius());
         if (nearest != null) {
             manager.assignCombatTarget(data, mob, nearest);
             return;
@@ -365,13 +350,12 @@ public final class GuardTask extends BukkitRunnable {
         if (distanceSquared > radius * radius) {
             data.clearCombat();
             mob.setTarget(null);
-            movementRecovery.move(data, mob, anchor, executions * 10L);
+            LocationUtil.moveToward(mob, anchor, plugin.getFollowMoveSpeed());
             return;
         }
         if (combatTarget != null && data.isInCombat()) return;
 
-        LivingEntity nearest = allowsInterception(data)
-                ? findNearestHostile(mob, anchor, radius) : null;
+        LivingEntity nearest = findNearestHostile(mob, anchor, radius);
         if (nearest != null) {
             manager.assignCombatTarget(data, mob, nearest);
             return;
@@ -398,15 +382,10 @@ public final class GuardTask extends BukkitRunnable {
                 .orElse(null);
     }
 
-    private boolean allowsInterception(GuardData data) {
-        CombatPolicy policy = data.getTactics().policy();
-        return policy == CombatPolicy.LEGACY || policy == CombatPolicy.INTERCEPT;
-    }
-
     private void teleportNearOwner(GuardData data, Mob mob, Location ownerLocation) {
         Location destination = LocationUtil.findSafeLocation(
                 ownerLocation, Math.floorMod(data.getGuardId().hashCode(), 13), mob);
-        if (!teleportSafely(data, mob, destination)) {
+        if (destination == null || !mob.teleport(destination)) {
             return;
         }
         data.clearCombat();
@@ -419,9 +398,9 @@ public final class GuardTask extends BukkitRunnable {
         if (targetLocation == null || targetLocation.getWorld() == null) return;
         Location destination = LocationUtil.findSafeLocation(
                 targetLocation, Math.floorMod(data.getGuardId().hashCode(), 13), mob);
-        if (!teleportSafely(data, mob, destination)) {
+        if (destination == null || !mob.teleport(destination)) {
             manager.setProtectionRuntimeState(data, GuardData.ProtectionState.WAITING,
-                    destination == null ? "対象付近の安全地点が見つかりません" : "対象付近への移動が許可されませんでした");
+                    "対象ワールドの安全地点が見つかりません");
             manager.reportFailure("role-transfer", data.getGuardId(),
                     new IllegalStateException("役職対象付近の安全地点への移動に失敗しました"));
             return;
@@ -439,26 +418,13 @@ public final class GuardTask extends BukkitRunnable {
     private void teleportToAnchor(GuardData data, Mob mob, Location anchor) {
         Location destination = LocationUtil.findSafeLocation(
                 anchor, Math.floorMod(data.getGuardId().hashCode(), 13), mob);
-        if (!teleportSafely(data, mob, destination)) {
+        if (destination == null || !mob.teleport(destination)) {
             return;
         }
         data.clearCombat();
         mob.setTarget(null);
         data.setLastLocation(destination);
         manager.markDirty();
-    }
-
-    private boolean teleportSafely(GuardData data, Mob mob, Location destination) {
-        if (destination == null) {
-            data.setTransferState(GuardMovementRecovery.State.NO_SAFE_DESTINATION);
-            return false;
-        }
-        if (!mob.teleport(destination)) {
-            data.setTransferState(GuardMovementRecovery.State.TELEPORT_REJECTED);
-            return false;
-        }
-        LocationUtil.stopHorizontal(mob);
-        return true;
     }
 
     private void freeze(Mob mob, GuardData data) {
