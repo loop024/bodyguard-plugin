@@ -3,9 +3,8 @@ package plugin.test.com.bodyGuard.guard;
 import java.util.ArrayList;
 import java.util.List;
 import org.bukkit.configuration.ConfigurationSection;
-import org.bukkit.configuration.file.YamlConfiguration;
 
-/** Immutable settings shared by registry and PDC; runtime pursuit/route progress is not saved. */
+/** Immutable contract settings stored in guards.yml; runtime pursuit/route progress is not saved. */
 public record GuardTactics(CombatPolicy policy, boolean patrol, List<SavedPosition> points) {
     public static final GuardTactics DEFAULT = new GuardTactics(CombatPolicy.LEGACY, false, List.of());
     public GuardTactics {
@@ -26,19 +25,6 @@ public record GuardTactics(CombatPolicy policy, boolean patrol, List<SavedPositi
         configuration.set(path + ".patrol", patrol);
         configuration.set(path + ".points", null);
         for (int i = 0; i < points.size(); i++) points.get(i).write(configuration, path + ".points." + i);
-    }
-    public String encode() {
-        YamlConfiguration yaml = new YamlConfiguration();
-        write(yaml, "tactics");
-        return yaml.saveToString();
-    }
-    public static GuardTactics decode(String text) {
-        if (text == null) return DEFAULT;
-        if (text.length() > 32768) throw new IllegalArgumentException("巡回データが大きすぎます");
-        YamlConfiguration yaml = new YamlConfiguration();
-        try { yaml.loadFromString(text); }
-        catch (Exception invalid) { throw new IllegalArgumentException("戦闘・巡回データを読めません", invalid); }
-        return read(yaml, "tactics");
     }
     public static GuardTactics read(ConfigurationSection configuration, String path) {
         if (!configuration.contains(path)) return DEFAULT;

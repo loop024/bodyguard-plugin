@@ -483,6 +483,8 @@ public final class GuardManager {
             return null;
         }
         data.setFavorite(previous.isFavorite());
+        data.setTactics(previous.getTactics());
+        data.setSaveRevision(previous.getSaveRevision());
         data.restoreProtection(previous.snapshotProtection());
         guards.put(entityId, data);
         dirty = true;
@@ -1847,7 +1849,7 @@ public final class GuardManager {
         mob.setTarget(target);
         // Respect another plugin's cancellation or replacement of this command.
         if (!target.equals(mob.getTarget())) {
-            data.clearCombat();
+            data.clearCombatTarget();
         }
     }
 

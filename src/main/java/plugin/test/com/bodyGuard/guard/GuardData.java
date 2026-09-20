@@ -91,19 +91,26 @@ public final class GuardData {
     private boolean favorite;
     private GuardTactics tactics = GuardTactics.DEFAULT;
     private int patrolIndex;
-    private long pursuitStarted;
-    private long targetLastSeen;
-    private long retreatUntil;
+    private long pursuitStartedTick = -1L;
+    private long targetLastSeenTick = -1L;
+    private long retreatUntilTick;
     private UUID pursuitTarget;
     private long lastAiUpdateNanos;
     private long nextAiTick;
 
     public GuardTactics getTactics() { return tactics; }
     public void setTactics(GuardTactics tactics) {
-        this.tactics = Objects.requireNonNull(tactics);
-        patrolIndex = 0;
-        movementProgress = null;
-        clearCombat();
+        GuardTactics next = Objects.requireNonNull(tactics);
+        if (this.tactics.equals(next)) return;
+        boolean routeChanged = !this.tactics.points().equals(next.points())
+                || this.tactics.patrol() != next.patrol();
+        boolean policyChanged = this.tactics.policy() != next.policy();
+        this.tactics = next;
+        if (routeChanged) {
+            patrolIndex = 0;
+            movementProgress = null;
+        }
+        if (policyChanged && next.policy() == CombatPolicy.PASSIVE) clearCombatTarget();
     }
     public int getPatrolIndex() { return patrolIndex; }
     public void advancePatrol() { patrolIndex = (patrolIndex + 1) % Math.max(1, tactics.points().size()); }
@@ -111,20 +118,17 @@ public final class GuardData {
     public void setLastAiUpdateNanos(long value) { lastAiUpdateNanos = value; }
     public long getNextAiTick() { return nextAiTick; }
     public void setNextAiTick(long value) { nextAiTick = value; }
-    public boolean isRetreating() { return System.currentTimeMillis() < retreatUntil; }
-    public void retreat(long millis) {
+    public boolean isRetreating(long tick) { return tick < retreatUntilTick; }
+    public void retreat(long tick, long durationTicks) {
         clearCombat();
-        retreatUntil = System.currentTimeMillis() + millis;
+        retreatUntilTick = tick + Math.max(1L, durationTicks);
     }
-    public boolean pursuitExpired(UUID target, boolean visible, long maxMillis, long unseenMillis) {
-        long now = System.currentTimeMillis();
-        if (!target.equals(pursuitTarget)) {
-            pursuitTarget = target;
-            pursuitStarted = now;
-            targetLastSeen = now;
-        }
-        if (visible) targetLastSeen = now;
-        return now - pursuitStarted >= maxMillis || now - targetLastSeen >= unseenMillis;
+    public boolean pursuitExpired(UUID target, boolean visible, long tick, long maxTicks, long unseenTicks) {
+        Objects.requireNonNull(target, "target");
+        if (pursuitStartedTick < 0L) pursuitStartedTick = tick;
+        if (pursuitTarget == null || !pursuitTarget.equals(target)) pursuitTarget = target;
+        if (targetLastSeenTick < 0L || visible) targetLastSeenTick = tick;
+        return tick - pursuitStartedTick >= maxTicks || tick - targetLastSeenTick >= unseenTicks;
     }
     // Runtime only: not serialized to YAML or entity PDC.
     GuardMovementRecovery.Progress movementProgress;
@@ -254,11 +258,16 @@ public final class GuardData {
     public void setCombatTargetId(UUID targetId) { combatTargetId = targetId; }
 
     public void clearCombat() {
+        clearCombatTarget();
+        pursuitTarget = null;
+        pursuitStartedTick = -1L;
+        targetLastSeenTick = -1L;
+    }
+
+    /** Cancels an individual command without restarting the pursuit episode. */
+    public void clearCombatTarget() {
         combatTargetId = null;
         combatUntilMillis = 0L;
-        pursuitTarget = null;
-        pursuitStarted = 0L;
-        targetLastSeen = 0L;
     }
 
     public boolean isOfflineFrozen() { return offlineFrozen; }
