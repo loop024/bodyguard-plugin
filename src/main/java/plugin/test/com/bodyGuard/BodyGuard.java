@@ -198,15 +198,18 @@ public final class BodyGuard extends JavaPlugin {
             getLogger().log(Level.SEVERE, "messages.ymlの検証に失敗しました。現在の設定を維持します。", failure);
             return false;
         }
-        candidate.setDefaults(super.getConfig().getDefaults());
+        org.bukkit.configuration.Configuration defaults = super.getConfig().getDefaults();
+        if (defaults != null) candidate.setDefaults(defaults);
         if (!validateConfiguration(candidate)) {
             getLogger().severe("config.ymlまたはmessages.ymlが不正です。現在の設定を維持します。");
             return false;
         }
+        Set<EntityType> nextAllowedMobTypes = readAllowedMobTypes(candidate);
+        Map<String, RoleDefinition> nextRoleDefinitions = readRoleDefinitions(candidate);
         activeConfiguration = candidate;
         if (messageCandidate != null) messages.applyCandidate(messageCandidate);
-        allowedMobTypes = readAllowedMobTypes();
-        roleDefinitions = readRoleDefinitions();
+        allowedMobTypes = nextAllowedMobTypes;
+        roleDefinitions = nextRoleDefinitions;
         if (guardManager != null) {
             guardManager.requestProtectionRefreshAll();
         }
@@ -303,9 +306,9 @@ public final class BodyGuard extends JavaPlugin {
         }
     }
 
-    private Set<EntityType> readAllowedMobTypes() {
+    private Set<EntityType> readAllowedMobTypes(FileConfiguration configuration) {
         Set<EntityType> result = new LinkedHashSet<>();
-        for (String value : getConfig().getStringList("allowed-mobs")) {
+        for (String value : configuration.getStringList("allowed-mobs")) {
             if (value == null || value.isBlank()) {
                 continue;
             }
@@ -361,8 +364,8 @@ public final class BodyGuard extends JavaPlugin {
         }
     }
 
-    private Map<String, RoleDefinition> readRoleDefinitions() {
-        ConfigurationSection roles = getConfig().getConfigurationSection("role-protection.roles");
+    private Map<String, RoleDefinition> readRoleDefinitions(FileConfiguration configuration) {
+        ConfigurationSection roles = configuration.getConfigurationSection("role-protection.roles");
         if (roles == null) return Collections.emptyMap();
         Map<String, RoleDefinition> result = new LinkedHashMap<>();
         for (String roleId : roles.getKeys(false)) {

@@ -106,7 +106,7 @@ public final class MessageUtil {
 
     public void send(CommandSender sender, String key, Map<String, String> placeholders) {
         String body = format(get(key, key), placeholders);
-        sender.sendMessage(color(prefix()) + body);
+        if (shouldSendOperationChat(sender, body)) sender.sendMessage(color(prefix()) + body);
         showOperationNotice(sender, body, noticeTone(body));
     }
 
@@ -120,8 +120,16 @@ public final class MessageUtil {
     public void send(CommandSender sender, String key, String fallback,
                      Map<String, String> placeholders) {
         String body = format(get(key, fallback), placeholders);
-        sender.sendMessage(color(prefix()) + body);
+        if (shouldSendOperationChat(sender, body)) sender.sendMessage(color(prefix()) + body);
         showOperationNotice(sender, body, noticeTone(body));
+    }
+
+    private boolean shouldSendOperationChat(CommandSender sender, String body) {
+        if (!(sender instanceof Player player) || !(plugin instanceof BodyGuard bodyGuard)) return true;
+        return bodyGuard.getPlayerSettings(player.getUniqueId()).notification()
+                != PlayerSettings.Notification.TITLE
+                || !plugin.getConfig().getBoolean("notifications.operation-titles.enabled", true)
+                || noticeTone(body) != NoticeTone.SUCCESS;
     }
 
     /** Shows the same unmistakable on-screen acknowledgement for command and GUI operations. */

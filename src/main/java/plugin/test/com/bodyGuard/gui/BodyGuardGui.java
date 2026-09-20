@@ -2256,7 +2256,10 @@ public final class BodyGuardGui implements Listener {
         UiResult result = new UiResult(messages.format(messages.get(key, fallback), placeholders),
                 tone, System.currentTimeMillis() + plugin.getGuiResultDurationTicks() * 50L);
         results.put(id, result);
-        if (playerDataStorage.getSettings(id).notification() == PlayerSettings.Notification.CHAT) {
+        PlayerSettings.Notification notification = playerDataStorage.getSettings(id).notification();
+        if (notification == PlayerSettings.Notification.CHAT
+                || (notification == PlayerSettings.Notification.TITLE
+                && !plugin.getConfig().getBoolean("notifications.operation-titles.enabled", true))) {
             player.sendMessage(result.message());
         }
         messages.showOperationNotice(player, result.message(), switch (tone) {

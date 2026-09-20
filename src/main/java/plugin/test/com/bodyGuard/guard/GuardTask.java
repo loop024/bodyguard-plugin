@@ -34,11 +34,11 @@ public final class GuardTask extends BukkitRunnable {
         try { manager.updateManagedChunks(); }
         catch (RuntimeException failure) { manager.reportFailure("chunks", null, failure); }
         List<GuardData> guards = new ArrayList<>(manager.getAllGuardData());
+        guards.removeIf(GuardData::isRetired);
         int limit = Math.min(guards.size(), plugin.getMaxGuardsPerCycle());
         for (int processed = 0; processed < limit; processed++) {
             GuardData data = guards.get(nextGuardIndex % guards.size());
             nextGuardIndex = (nextGuardIndex + 1) % guards.size();
-            if (data.isRetired()) continue;
             if (!manager.shouldRetry("tick", data.getGuardId())) continue;
             try {
                 tickGuard(data);
