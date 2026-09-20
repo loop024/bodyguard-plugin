@@ -92,7 +92,6 @@ public final class GuardTask extends BukkitRunnable {
                 data.setOfflineFrozen(false);
             }
 
-            LivingEntity target = validateCurrentTarget(mob, data);
             if (data.isRoleProtection()) {
                 Player protectedTarget = manager.refreshProtectionTarget(data, mob);
                 if (protectedTarget == null) {
@@ -101,6 +100,9 @@ public final class GuardTask extends BukkitRunnable {
                     LocationUtil.stopHorizontal(mob);
                     return;
                 }
+                // Target selection may clear combat and the mob's target.
+                // Validate only after that change so this tick uses the current target.
+                LivingEntity target = validateCurrentTarget(mob, data);
                 switch (data.getMode()) {
                     case FOLLOW -> tickRoleFollow(data, mob, protectedTarget, target);
                     case STAY -> {
@@ -112,6 +114,7 @@ public final class GuardTask extends BukkitRunnable {
                 }
                 return;
             }
+            LivingEntity target = validateCurrentTarget(mob, data);
             switch (data.getMode()) {
                 case FOLLOW -> tickFollow(data, mob, owner, target);
                 case STAY -> tickStay(data, mob, target);
