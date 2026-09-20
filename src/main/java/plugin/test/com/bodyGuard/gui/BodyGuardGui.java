@@ -45,6 +45,7 @@ import plugin.test.com.bodyGuard.guard.GuardManager;
 import plugin.test.com.bodyGuard.guard.GuardMode;
 import plugin.test.com.bodyGuard.guard.RoleDefinition;
 import plugin.test.com.bodyGuard.storage.PlayerDataStorage;
+import plugin.test.com.bodyGuard.storage.PlayerSettings;
 import plugin.test.com.bodyGuard.storage.PlayerDataStorage.State;
 import plugin.test.com.bodyGuard.storage.SafeYamlFile;
 import plugin.test.com.bodyGuard.util.EntityUtil;
@@ -137,7 +138,7 @@ public final class BodyGuardGui implements Listener {
             return;
         }
         openList(player, 0, BodyGuardMenuHolder.GuardFilter.ALL,
-                BodyGuardMenuHolder.GuardSort.STANDARD);
+                initialSort(player));
     }
 
     /** Opens the compact daily-command hub used by the protected menu item. */
@@ -157,6 +158,87 @@ public final class BodyGuardGui implements Listener {
                 text("gui.command-title", "&3護衛司令メニュー"));
         renderCommandMenu(inventory, player);
         player.openInventory(inventory);
+    }
+
+    private void openSettings(Player player) {
+        if (!canUseMenu(player)) return;
+        BodyGuardMenuHolder holder = new BodyGuardMenuHolder(
+                BodyGuardMenuHolder.MenuType.SETTINGS, player.getUniqueId(), 0, null,
+                null, null, false);
+        Inventory inventory = createInventory(holder, MANAGEMENT_SIZE,
+                text("gui.settings-title", "&3BodyGuard 個人設定"));
+        renderSettings(inventory, player);
+        player.openInventory(inventory);
+    }
+
+    private void renderSettings(Inventory inventory, Player player) {
+        fillInventory(inventory, Material.CYAN_STAINED_GLASS_PANE);
+        PlayerSettings choice = playerDataStorage.getSettings(player.getUniqueId());
+        inventory.setItem(4, item(Material.BOOK, text("gui.settings-description", "&b個人設定"),
+                List.of(text("gui.settings-click", "&7各項目をクリックすると次の選択肢に変わります。"),
+                        text("gui.settings-server-limit", "&7サーバー側で無効の機能は有効にできません。"))));
+        inventory.setItem(10, item(Material.PAPER,
+                text("gui.settings-notification", "&b通知: &f") + settingName(choice.notification().name()),
+                List.of(text("gui.settings-notification-lore", "&7継承 / タイトル / チャット"))));
+        inventory.setItem(12, item(Material.NOTE_BLOCK,
+                text("gui.settings-sound", "&bGUI音: &f") + settingName(choice.guiSound().name()),
+                List.of(text("gui.settings-toggle-lore", "&7継承 / 入 / 切"))));
+        inventory.setItem(14, item(Material.SPYGLASS,
+                text("gui.settings-action-bar", "&b照準表示: &f") + settingName(choice.actionBar().name()),
+                List.of(text("gui.settings-toggle-lore", "&7継承 / 入 / 切"))));
+        inventory.setItem(16, item(Material.COMPASS,
+                text("gui.settings-sort", "&b一覧の初期順: &f") + settingName(choice.listSort().name()),
+                List.of(text("gui.settings-sort-lore", "&7標準 / 近い順 / HP割合順"))));
+        inventory.setItem(18, item(Material.ARROW, text("gui.back", "&b戻る"), List.of()));
+        inventory.setItem(22, item(Material.BOOK, text("gui.settings-guide", "&bガイドを再表示"), List.of()));
+        inventory.setItem(25, resultItem(player));
+        inventory.setItem(26, item(Material.BARRIER, text("gui.close", "&c閉じる"), List.of()));
+    }
+
+    private String settingName(String value) {
+        return switch (value) {
+            case "INHERIT" -> "継承";
+            case "TITLE" -> "タイトル";
+            case "CHAT" -> "チャット";
+            case "ON" -> "入";
+            case "OFF" -> "切";
+            case "DISTANCE" -> "近い順";
+            case "HEALTH_RATIO" -> "HP割合順";
+            default -> "標準";
+        };
+    }
+
+    private void handleSettingsClick(Player player, int slot) {
+        if (slot == 18) {
+            transition(player, () -> openCommandMenu(player));
+            return;
+        }
+        if (slot == 22) {
+            transition(player, () -> openTutorial(player, 0, true));
+            return;
+        }
+        if (slot == 26) {
+            player.closeInventory();
+            return;
+        }
+        PlayerSettings current = playerDataStorage.getSettings(player.getUniqueId());
+        PlayerSettings next = switch (slot) {
+            case 10 -> current.nextNotification();
+            case 12 -> current.nextGuiSound();
+            case 14 -> current.nextActionBar();
+            case 16 -> current.nextListSort();
+            default -> null;
+        };
+        if (next == null) return;
+        if (playerDataStorage.setSettings(player.getUniqueId(), next)
+                != SafeYamlFile.SaveResult.SUCCESS) {
+            showResult(player, "storage-unavailable",
+                    "&c個人設定を保存できませんでした。変更は反映していません。", Map.of(), false);
+            return;
+        }
+        if (slot == 14 && next.actionBar() == PlayerSettings.Toggle.OFF) clearActionBar(player);
+        renderSettings(player.getOpenInventory().getTopInventory(), player);
+        showResult(player, "gui-settings-saved", "&a個人設定を保存しました。", Map.of(), true);
     }
 
     private boolean shouldAutoShowTutorial(Player player) {
@@ -235,7 +317,12 @@ public final class BodyGuardGui implements Listener {
 
     public void openList(Player player, int page) {
         openList(player, page, BodyGuardMenuHolder.GuardFilter.ALL,
-                BodyGuardMenuHolder.GuardSort.STANDARD);
+                initialSort(player));
+    }
+
+    private BodyGuardMenuHolder.GuardSort initialSort(Player player) {
+        return BodyGuardMenuHolder.GuardSort.valueOf(
+                playerDataStorage.getSettings(player.getUniqueId()).listSort().name());
     }
 
     public void openList(Player player, int requestedPage,
@@ -568,6 +655,7 @@ public final class BodyGuardGui implements Listener {
         }
         switch (holder.getType()) {
             case COMMAND -> handleCommandClick(player, slot);
+            case SETTINGS -> handleSettingsClick(player, slot);
             case TUTORIAL -> handleTutorialClick(player, holder, slot);
             case LIST -> handleListClick(player, holder, slot, event.getClick(), event.isShiftClick());
             case SUMMON -> handleSummonClick(player, holder, slot, event.getClick());
@@ -663,6 +751,7 @@ public final class BodyGuardGui implements Listener {
             Inventory inventory = player.getOpenInventory().getTopInventory();
             switch (holder.getType()) {
                 case COMMAND -> renderCommandMenu(inventory, player);
+                case SETTINGS -> renderSettings(inventory, player);
                 case LIST -> refreshList(player, holder, inventory);
                 case SUMMON -> refreshSummon(player, holder, inventory);
                 case DETAIL -> refreshDetail(player, holder, inventory);
@@ -714,8 +803,8 @@ public final class BodyGuardGui implements Listener {
                 List.of(text("gui.command-management-lore", "&7契約解除などの管理画面を開きます。"))));
         inventory.setItem(23, item(Material.BOOK, text("gui.command-guide", "&b操作ガイド"),
                 List.of(text("gui.command-guide-lore", "&7初回ガイドをいつでも読み直せます。"))));
-        inventory.setItem(24, item(Material.GRAY_DYE, text("gui.command-settings-disabled", "&7設定（準備中）"),
-                List.of(text("gui.command-settings-disabled-lore", "&7通知設定の実装後に利用できます。"))));
+        inventory.setItem(24, item(Material.COMPARATOR, text("gui.command-settings", "&b個人設定"),
+                List.of(text("gui.command-settings-lore", "&7通知・音・照準表示・並べ替えを変更します。"))));
         inventory.setItem(25, resultItem(player));
         inventory.setItem(26, item(Material.BARRIER, text("gui.close", "&c閉じる"),
                 List.of(text("gui.close-lore", "&7メニューを閉じます。"))));
@@ -783,9 +872,10 @@ public final class BodyGuardGui implements Listener {
             case 22 -> transition(player, () -> openManagement(player, -1,
                     BodyGuardMenuHolder.GuardFilter.ALL, BodyGuardMenuHolder.GuardSort.STANDARD));
             case 23 -> transition(player, () -> openTutorial(player, 0, true));
+            case 24 -> transition(player, () -> openSettings(player));
             case 26 -> player.closeInventory();
             default -> {
-                // Summary, settings placeholder, result, and filler slots do nothing.
+                // Summary, result, and filler slots do nothing.
             }
         }
     }
@@ -817,10 +907,16 @@ public final class BodyGuardGui implements Listener {
             return;
         }
         CommandCounts before = commandCounts(player);
-        int changed = manager.teleportGuards(player);
-        showCommandResult(player, "gui-command-recall-result",
-                "&a移動: {changed}体 &7/ &8操作不可: {unavailable}体 &7/ &e未移動: {failed}体",
-                changed, before.unavailable(), before.available() - changed, Map.of());
+        GuardManager.RecallResult recall = manager.teleportGuards(player);
+        int changed = recall.moved();
+        showResult(player, recall.saved() ? "gui-command-recall-result" : "gui-command-recall-save-pending",
+                recall.saved()
+                        ? "&a移動: {changed}体 &7/ &8操作不可: {unavailable}体 &7/ &e未移動: {failed}体"
+                        : "&e移動: {changed}体。保存を確認できません。/bg status を確認してください。",
+                Map.of("changed", String.valueOf(changed),
+                        "unavailable", String.valueOf(before.unavailable()),
+                        "failed", String.valueOf(Math.max(0, before.available() - changed))),
+                changed > 0 && recall.saved());
     }
 
     private void healFromCommandMenu(Player player) {
@@ -890,8 +986,7 @@ public final class BodyGuardGui implements Listener {
             if (holder.isReleaseAll()) {
                 openCommandMenu(player);
             } else {
-                openList(player, 0, BodyGuardMenuHolder.GuardFilter.ALL,
-                        BodyGuardMenuHolder.GuardSort.STANDARD);
+                openList(player);
             }
         });
     }
@@ -999,10 +1094,15 @@ public final class BodyGuardGui implements Listener {
                     showResult(player, "gui-no-permission", "&cこの操作を使う権限がありません。", Map.of(), false);
                     return;
                 }
-                int count = manager.teleportGuards(player);
-                showResult(player, count == 0 ? "gui-recall-none" : "gui-recall-result",
-                        count == 0 ? "&e現在呼び戻せる護衛がいません。" : "&a{count}体の護衛を呼び戻しました。",
-                        Map.of("count", String.valueOf(count)), count > 0);
+                GuardManager.RecallResult recall = manager.teleportGuards(player);
+                int count = recall.moved();
+                showResult(player, !recall.saved() ? "gui-recall-save-pending"
+                                : count == 0 ? "gui-recall-none" : "gui-recall-result",
+                        !recall.saved()
+                                ? "&e{count}体を移動しましたが、保存を確認できません。/bg status を確認してください。"
+                                : count == 0 ? "&e現在呼び戻せる護衛がいません。"
+                                : "&a{count}体の護衛を呼び戻しました。",
+                        Map.of("count", String.valueOf(count)), count > 0 && recall.saved());
                 transition(player, () -> openList(player, holder.getPage(), holder.getFilter(), holder.getSort()));
             }
             case 48 -> {
@@ -2156,6 +2256,9 @@ public final class BodyGuardGui implements Listener {
         UiResult result = new UiResult(messages.format(messages.get(key, fallback), placeholders),
                 tone, System.currentTimeMillis() + plugin.getGuiResultDurationTicks() * 50L);
         results.put(id, result);
+        if (playerDataStorage.getSettings(id).notification() == PlayerSettings.Notification.CHAT) {
+            player.sendMessage(result.message());
+        }
         messages.showOperationNotice(player, result.message(), switch (tone) {
             case SUCCESS -> NoticeTone.SUCCESS;
             case WARNING -> NoticeTone.WARNING;
@@ -2175,6 +2278,7 @@ public final class BodyGuardGui implements Listener {
 
     private boolean isWarningResult(String key) {
         return key != null && (key.endsWith("-none")
+                || key.endsWith("-save-pending")
                 || key.endsWith("-full")
                 || key.contains("unavailable")
                 || key.contains("unloaded")
@@ -2201,6 +2305,7 @@ public final class BodyGuardGui implements Listener {
         }
         switch (holder.getType()) {
             case COMMAND -> top.setItem(25, resultItem(player));
+            case SETTINGS -> top.setItem(25, resultItem(player));
             case LIST, SUMMON -> top.setItem(49, resultItem(player));
             case DETAIL -> top.setItem(40, resultItem(player));
             case MANAGEMENT -> top.setItem(22, resultItem(player));
@@ -2247,6 +2352,11 @@ public final class BodyGuardGui implements Listener {
 
     private void refreshActionBars() {
         for (Player player : Bukkit.getOnlinePlayers()) {
+            if (playerDataStorage.getSettings(player.getUniqueId()).actionBar()
+                    == PlayerSettings.Toggle.OFF) {
+                clearActionBar(player);
+                continue;
+            }
             if (player.getOpenInventory().getTopInventory().getHolder() instanceof BodyGuardMenuHolder) {
                 clearActionBar(player);
                 continue;

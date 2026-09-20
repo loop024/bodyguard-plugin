@@ -1186,9 +1186,11 @@ public final class GuardManager {
         return rename(data, mob, name);
     }
 
-    public int teleportGuards(Player owner) {
+    public record RecallResult(int moved, boolean saved) {}
+
+    public RecallResult teleportGuards(Player owner) {
         if (owner == null) {
-            return 0;
+            return new RecallResult(0, true);
         }
         int teleported = 0;
         int position = 0;
@@ -1206,14 +1208,14 @@ public final class GuardManager {
                 if (!save()) {
                     reportFailure("teleport-save", owner.getUniqueId(),
                             new IllegalStateException("呼び戻し後の保存結果を確認できません"));
-                    teleported = 0;
+                    return new RecallResult(teleported, false);
                 }
             } catch (RuntimeException failure) {
                 reportFailure("teleport-save", owner.getUniqueId(), failure);
-                teleported = 0;
+                return new RecallResult(teleported, false);
             }
         }
-        return teleported;
+        return new RecallResult(teleported, true);
     }
 
     public int healGuards(Player owner) {

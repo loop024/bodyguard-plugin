@@ -6,6 +6,10 @@ storage:
   # Save changed guard data periodically. Set to 0 to disable periodic saves.
   autosave-seconds: 60
 
+performance:
+  # Maximum guard ticks processed every 10 server ticks. Remaining guards wait for the next cycle.
+  max-guards-per-cycle: 100
+
 limits:
   max-guards-per-player: 10
 

@@ -21,6 +21,7 @@ public final class GuardTask extends BukkitRunnable {
     private final BodyGuard plugin;
     private final GuardManager manager;
     private long executions;
+    private int nextGuardIndex;
 
     public GuardTask(BodyGuard plugin, GuardManager manager) {
         this.plugin = plugin;
@@ -32,7 +33,11 @@ public final class GuardTask extends BukkitRunnable {
         executions++;
         try { manager.updateManagedChunks(); }
         catch (RuntimeException failure) { manager.reportFailure("chunks", null, failure); }
-        for (GuardData data : manager.getAllGuardData()) {
+        List<GuardData> guards = new ArrayList<>(manager.getAllGuardData());
+        int limit = Math.min(guards.size(), plugin.getMaxGuardsPerCycle());
+        for (int processed = 0; processed < limit; processed++) {
+            GuardData data = guards.get(nextGuardIndex % guards.size());
+            nextGuardIndex = (nextGuardIndex + 1) % guards.size();
             if (data.isRetired()) continue;
             if (!manager.shouldRetry("tick", data.getGuardId())) continue;
             try {

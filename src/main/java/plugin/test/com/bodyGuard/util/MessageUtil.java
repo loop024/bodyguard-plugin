@@ -11,6 +11,8 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
+import plugin.test.com.bodyGuard.BodyGuard;
+import plugin.test.com.bodyGuard.storage.PlayerSettings;
 
 /** Loads and formats all player-facing messages from messages.yml. */
 public final class MessageUtil {
@@ -78,6 +80,21 @@ public final class MessageUtil {
         }
     }
 
+    /** Reads one validated snapshot for an all-or-nothing settings reload. */
+    public YamlConfiguration loadCandidate() throws Exception {
+        YamlConfiguration candidate = new YamlConfiguration();
+        candidate.load(file);
+        Object prefix = candidate.get("prefix");
+        if (prefix != null && !(prefix instanceof String)) {
+            throw new IOException("prefixは文字列である必要があります");
+        }
+        return candidate;
+    }
+
+    public void applyCandidate(YamlConfiguration candidate) {
+        configuration = java.util.Objects.requireNonNull(candidate);
+    }
+
     public void send(CommandSender sender, String key) {
         send(sender, key, Collections.emptyMap());
     }
@@ -113,6 +130,9 @@ public final class MessageUtil {
                 || !plugin.getConfig().getBoolean("notifications.operation-titles.enabled", true)) {
             return;
         }
+        if (plugin instanceof BodyGuard bodyGuard
+                && bodyGuard.getPlayerSettings(player.getUniqueId()).notification()
+                == PlayerSettings.Notification.CHAT) return;
         NoticeTone actualTone = tone == null ? NoticeTone.SUCCESS : tone;
         String title = switch (actualTone) {
             case SUCCESS -> get("notification.success", "&a&l✓ 実行しました");

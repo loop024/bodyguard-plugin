@@ -662,9 +662,15 @@ public final class BodyGuardCommand implements CommandExecutor {
             usage(sender, "/bg tp");
             return true;
         }
-        int count = manager.teleportGuards(player);
-        messages.send(sender, count == 0 ? "nothing-teleported" : "teleported",
-                Map.of("count", String.valueOf(count)));
+        GuardManager.RecallResult result = manager.teleportGuards(player);
+        if (!result.saved()) {
+            messages.send(sender, "teleported-save-pending",
+                    "&e{count}体を移動しましたが、保存を確認できません。/bg status を確認してください。",
+                    Map.of("count", String.valueOf(result.moved())));
+        } else {
+            messages.send(sender, result.moved() == 0 ? "nothing-teleported" : "teleported",
+                    Map.of("count", String.valueOf(result.moved())));
+        }
         return true;
     }
 

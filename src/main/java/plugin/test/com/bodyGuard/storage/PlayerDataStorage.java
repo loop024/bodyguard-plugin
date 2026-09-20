@@ -25,6 +25,7 @@ public final class PlayerDataStorage {
     private final Map<UUID, State> states = new HashMap<>();
     private final Map<UUID, UUID> companions = new HashMap<>();
     private final Map<UUID, Set<UUID>> friends = new HashMap<>();
+    private final Map<UUID, PlayerSettings> settings = new HashMap<>();
     private boolean dirty;
     private SafeYamlFile.SaveResult lastMutationResult = SafeYamlFile.SaveResult.SUCCESS;
 
@@ -36,6 +37,27 @@ public final class PlayerDataStorage {
 
     public boolean hasChoice(UUID playerId) {
         return playerId != null && states.containsKey(playerId);
+    }
+
+    public PlayerSettings getSettings(UUID playerId) {
+        return playerId == null ? PlayerSettings.DEFAULT
+                : settings.getOrDefault(playerId, PlayerSettings.DEFAULT);
+    }
+
+    public SafeYamlFile.SaveResult setSettings(UUID playerId, PlayerSettings choice) {
+        if (playerId == null || choice == null) {
+            lastMutationResult = SafeYamlFile.SaveResult.VALIDATION_FAILED;
+            return lastMutationResult;
+        }
+        PlayerSettings previous = settings.get(playerId);
+        if (choice.equals(PlayerSettings.DEFAULT)) settings.remove(playerId);
+        else settings.put(playerId, choice);
+        lastMutationResult = save();
+        if (lastMutationResult != SafeYamlFile.SaveResult.SUCCESS) {
+            if (previous == null) settings.remove(playerId);
+            else settings.put(playerId, previous);
+        }
+        return lastMutationResult;
     }
 
     public SafeYamlFile.SaveResult setState(UUID playerId, State state) {
@@ -124,6 +146,7 @@ public final class PlayerDataStorage {
         states.clear();
         companions.clear();
         friends.clear();
+        settings.clear();
         YamlConfiguration configuration = safeFile.load();
         ConfigurationSection players = configuration.getConfigurationSection("players");
         if (players == null) return;
@@ -155,6 +178,18 @@ public final class PlayerDataStorage {
                 }
             }
 
+            String settingsPath = path + ".settings.";
+            PlayerSettings choice = new PlayerSettings(
+                    readEnum(players, settingsPath + "notification", PlayerSettings.Notification.class,
+                            PlayerSettings.Notification.INHERIT, idText),
+                    readEnum(players, settingsPath + "gui-sound", PlayerSettings.Toggle.class,
+                            PlayerSettings.Toggle.INHERIT, idText),
+                    readEnum(players, settingsPath + "action-bar", PlayerSettings.Toggle.class,
+                            PlayerSettings.Toggle.INHERIT, idText),
+                    readEnum(players, settingsPath + "list-sort", PlayerSettings.ListSort.class,
+                            PlayerSettings.ListSort.STANDARD, idText));
+            if (!choice.equals(PlayerSettings.DEFAULT)) settings.put(playerId, choice);
+
             Object rawFriends = players.get(path + ".friends");
             if (rawFriends != null && !(rawFriends instanceof java.util.List<?>)) {
                 plugin.getLogger().warning("仲間一覧を無視します（配列ではありません）: " + idText);
@@ -172,6 +207,21 @@ public final class PlayerDataStorage {
             }
         }
         dirty = false;
+    }
+
+    private <E extends Enum<E>> E readEnum(ConfigurationSection section, String path,
+                                           Class<E> type, E fallback, String playerId) {
+        Object raw = section.get(path);
+        if (raw == null) return fallback;
+        if (raw instanceof String value) {
+            try {
+                return Enum.valueOf(type, value.trim().toUpperCase(java.util.Locale.ROOT));
+            } catch (IllegalArgumentException ignored) {
+                // Keep other settings for this player.
+            }
+        }
+        plugin.getLogger().warning("個人設定を無視します: " + playerId + " / " + path);
+        return fallback;
     }
 
     public boolean isHealthy() { return safeFile.isHealthy(); }
@@ -196,6 +246,7 @@ public final class PlayerDataStorage {
         playerIds.addAll(states.keySet());
         playerIds.addAll(companions.keySet());
         playerIds.addAll(friends.keySet());
+        playerIds.addAll(settings.keySet());
         configuration.set("record-count", playerIds.size());
         for (UUID playerId : playerIds) {
             String path = "players." + playerId;
@@ -207,6 +258,13 @@ public final class PlayerDataStorage {
             if (friendSet != null) {
                 configuration.set(path + ".friends", friendSet.stream()
                         .map(UUID::toString).sorted().toList());
+            }
+            PlayerSettings choice = settings.get(playerId);
+            if (choice != null) {
+                configuration.set(path + ".settings.notification", choice.notification().name());
+                configuration.set(path + ".settings.gui-sound", choice.guiSound().name());
+                configuration.set(path + ".settings.action-bar", choice.actionBar().name());
+                configuration.set(path + ".settings.list-sort", choice.listSort().name());
             }
         }
         SafeYamlFile.SaveResult result = safeFile.saveWithResult(configuration);

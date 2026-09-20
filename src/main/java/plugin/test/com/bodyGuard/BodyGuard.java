@@ -28,6 +28,7 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.ConfigurationSection;
 
 import plugin.test.com.bodyGuard.command.BodyGuardCommand;
@@ -45,6 +46,7 @@ import plugin.test.com.bodyGuard.listener.PlayerListener;
 import plugin.test.com.bodyGuard.listener.TargetListener;
 import plugin.test.com.bodyGuard.storage.GuardStorage;
 import plugin.test.com.bodyGuard.storage.PlayerDataStorage;
+import plugin.test.com.bodyGuard.storage.PlayerSettings;
 import plugin.test.com.bodyGuard.storage.OperationLedgerStorage;
 import plugin.test.com.bodyGuard.util.EntityUtil;
 import plugin.test.com.bodyGuard.util.MessageUtil;
@@ -77,6 +79,12 @@ public final class BodyGuard extends JavaPlugin {
     private GuardTask guardTask;
     private BodyGuardGui gui;
     private boolean registryInitialized;
+    private FileConfiguration activeConfiguration;
+
+    @Override
+    public FileConfiguration getConfig() {
+        return activeConfiguration == null ? super.getConfig() : activeConfiguration;
+    }
 
     @Override
     public void onEnable() {
@@ -183,15 +191,20 @@ public final class BodyGuard extends JavaPlugin {
             getLogger().log(Level.SEVERE, "config.ymlの検証に失敗しました。現在の設定を維持します。", failure);
             return false;
         }
-        if (!validateConfiguration(candidate) || (messages != null && !messages.canLoadSafely())) {
+        YamlConfiguration messageCandidate;
+        try {
+            messageCandidate = messages == null ? null : messages.loadCandidate();
+        } catch (Exception failure) {
+            getLogger().log(Level.SEVERE, "messages.ymlの検証に失敗しました。現在の設定を維持します。", failure);
+            return false;
+        }
+        candidate.setDefaults(super.getConfig().getDefaults());
+        if (!validateConfiguration(candidate)) {
             getLogger().severe("config.ymlまたはmessages.ymlが不正です。現在の設定を維持します。");
             return false;
         }
-
-        reloadConfig();
-        if (messages != null && !messages.reloadSafely()) {
-            return false;
-        }
+        activeConfiguration = candidate;
+        if (messageCandidate != null) messages.applyCandidate(messageCandidate);
         allowedMobTypes = readAllowedMobTypes();
         roleDefinitions = readRoleDefinitions();
         if (guardManager != null) {
@@ -212,6 +225,7 @@ public final class BodyGuard extends JavaPlugin {
             requireInteger(configuration, "guard-management.max-loaded-chunks-per-owner", 1, 256);
             requireInteger(configuration, "guard-management.chunk-loads-per-cycle", 1, 16);
             requireInteger(configuration, "guard-management.search-chunks-per-cycle", 1, 256);
+            requireInteger(configuration, "performance.max-guards-per-cycle", 10, 1000);
             int maxChunks = configuration.getInt("guard-management.max-loaded-chunks", 64);
             int ownerChunks = configuration.getInt("guard-management.max-loaded-chunks-per-owner", 16);
             if (ownerChunks > maxChunks) {
@@ -440,6 +454,10 @@ public final class BodyGuard extends JavaPlugin {
         return intSetting("storage.autosave-seconds", 60, 0, 3600) * 20;
     }
 
+    public int getMaxGuardsPerCycle() {
+        return intSetting("performance.max-guards-per-cycle", 100, 10, 1000);
+    }
+
     public double getFollowStartDistance() {
         return doubleSetting("follow.start-distance", 5.0, 0.0, 1024.0);
     }
@@ -626,6 +644,11 @@ public final class BodyGuard extends JavaPlugin {
         return getConfig().getBoolean("display.action-bar.enabled", true);
     }
 
+    public PlayerSettings getPlayerSettings(java.util.UUID playerId) {
+        return playerDataStorage == null ? PlayerSettings.DEFAULT
+                : playerDataStorage.getSettings(playerId);
+    }
+
     public int getGuiRefreshIntervalTicks() {
         return intSetting("display.gui-refresh-interval-ticks", 20, 0, 1200);
     }
@@ -721,6 +744,7 @@ public final class BodyGuard extends JavaPlugin {
         if (!guiSoundsEnabled() || player == null || !player.isOnline()) {
             return;
         }
+        if (getPlayerSettings(player.getUniqueId()).guiSound() == PlayerSettings.Toggle.OFF) return;
         try {
             player.playSound(player.getLocation(), success ? guiSuccessSound() : guiFailureSound(),
                     guiSoundVolume(), guiSoundPitch(success));
