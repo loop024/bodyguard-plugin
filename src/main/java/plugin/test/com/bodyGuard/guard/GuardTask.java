@@ -30,6 +30,7 @@ public final class GuardTask extends BukkitRunnable {
 
     @Override
     public void run() {
+        long started = System.nanoTime();
         executions++;
         try { manager.updateManagedChunks(); }
         catch (RuntimeException failure) { manager.reportFailure("chunks", null, failure); }
@@ -68,6 +69,7 @@ public final class GuardTask extends BukkitRunnable {
                 manager.reportFailure("save-retry", null, failure);
             }
         }
+        manager.recordCycleDuration(System.nanoTime() - started);
     }
 
     private void tickGuard(GuardData data) {

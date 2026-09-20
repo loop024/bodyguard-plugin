@@ -55,8 +55,9 @@ public final class GuardManager {
     private final Map<UUID, Integer> searchOffsets = new LinkedHashMap<>();
     private final Set<UUID> pendingProtectionRefresh = new LinkedHashSet<>();
     private int searchBudget = 32;
-    private int chunkCursor;
     private int ownerCursor;
+    private long lastCycleDurationNanos = -1L;
+    private long lastRegistrySaveDurationNanos = -1L;
 
     public void reportFailure(String operation, UUID guardId, RuntimeException failure) {
         long now = System.currentTimeMillis();
@@ -139,8 +140,14 @@ public final class GuardManager {
 
     private boolean persistRegistry() {
         if (!dirty) return true;
-        boolean saved = storage.saveWithResult(new ArrayList<>(guards.values()))
-                == SafeYamlFile.SaveResult.SUCCESS;
+        long started = System.nanoTime();
+        boolean saved;
+        try {
+            saved = storage.saveWithResult(new ArrayList<>(guards.values()))
+                    == SafeYamlFile.SaveResult.SUCCESS;
+        } finally {
+            lastRegistrySaveDurationNanos = System.nanoTime() - started;
+        }
         if (saved) {
             dirty = false;
         }
@@ -200,11 +207,23 @@ public final class GuardManager {
     }
 
     /** Persists the current registry even when no change was recorded, for plugin shutdown. */
-    public void forceSave() {
-        if (storage.saveWithResult(new ArrayList<>(guards.values()))
-                == SafeYamlFile.SaveResult.SUCCESS) {
+    public boolean forceSave() {
+        long started = System.nanoTime();
+        boolean saved;
+        try {
+            saved = storage.saveWithResult(new ArrayList<>(guards.values()))
+                    == SafeYamlFile.SaveResult.SUCCESS;
+        } finally {
+            lastRegistrySaveDurationNanos = System.nanoTime() - started;
+        }
+        if (saved) {
             dirty = false;
         }
+        return saved;
+    }
+
+    public void recordCycleDuration(long durationNanos) {
+        lastCycleDurationNanos = Math.max(0L, durationNanos);
     }
 
     /** Records a change made by the periodic entity-state synchronizer. */
@@ -1667,7 +1686,7 @@ public final class GuardManager {
             return;
         }
 
-        Set<GuardChunk> desired = new LinkedHashSet<>();
+        Set<GuardChunk> candidates = new LinkedHashSet<>();
         Map<UUID, Set<GuardChunk>> perOwner = new LinkedHashMap<>();
         Map<UUID, List<GuardData>> byOwner = new LinkedHashMap<>();
         for (GuardData data : guards.values()) {
@@ -1687,15 +1706,12 @@ public final class GuardManager {
         if (!owners.isEmpty()) {
             int ownerStart = Math.floorMod(ownerCursor++, owners.size());
             int maxRounds = byOwner.values().stream().mapToInt(List::size).max().orElse(0);
-            for (int round = 0; round < maxRounds
-                    && desired.size() < plugin.getManagedChunkLimit(); round++) {
-                for (int ownerIndex = 0; ownerIndex < owners.size()
-                        && desired.size() < plugin.getManagedChunkLimit(); ownerIndex++) {
+            for (int round = 0; round < maxRounds; round++) {
+                for (int ownerIndex = 0; ownerIndex < owners.size(); ownerIndex++) {
                     UUID ownerId = owners.get((ownerStart + ownerIndex) % owners.size());
                     List<GuardData> ownerGuards = byOwner.get(ownerId);
                     if (round >= ownerGuards.size()) continue;
-                    GuardData data = ownerGuards.get((round + Math.floorMod(chunkCursor, ownerGuards.size()))
-                            % ownerGuards.size());
+                    GuardData data = ownerGuards.get(round);
                     try {
                         Entity loaded = Bukkit.getEntity(data.getGuardId());
                         Location location = loaded == null ? resolveSavedLocation(data.getSavedLast())
@@ -1707,14 +1723,26 @@ public final class GuardManager {
                                 ignored -> new LinkedHashSet<>());
                         if (ownerChunks.size() < plugin.getOwnerChunkLimit()) {
                             ownerChunks.add(requested);
-                            desired.add(requested);
+                            candidates.add(requested);
                         }
                     } catch (RuntimeException failure) {
                         reportFailure("chunk-plan-owner", data.getGuardId(), failure);
                     }
                 }
             }
-            chunkCursor++;
+        }
+
+        // Keep valid tickets before filling free capacity. Rotating the selected
+        // subset every cycle caused repeated chunk unloads when at the limit.
+        Set<GuardChunk> desired = new LinkedHashSet<>();
+        int limit = plugin.getManagedChunkLimit();
+        for (GuardChunk key : managedChunks) {
+            if (desired.size() >= limit) break;
+            if (candidates.contains(key)) desired.add(key);
+        }
+        for (GuardChunk key : candidates) {
+            if (desired.size() >= limit) break;
+            desired.add(key);
         }
 
         // Return obsolete tickets before checking capacity for new ones.
@@ -2124,7 +2152,8 @@ public final class GuardManager {
                 playerDataStorage.getLastSaveResult(), playerDataStorage.getLastFailureReason(),
                 operationLedger == null ? SafeYamlFile.SaveResult.SUCCESS : operationLedger.getLastSaveResult(),
                 operationLedger == null ? null : operationLedger.getLastFailureReason(),
-                operationLedger == null ? 0 : operationLedger.size());
+                operationLedger == null ? 0 : operationLedger.size(),
+                lastCycleDurationNanos, lastRegistrySaveDurationNanos);
     }
 
     public record DiagnosticSnapshot(int active, int available, int unloaded,
@@ -2137,7 +2166,8 @@ public final class GuardManager {
                                      String playerFailureReason,
                                      SafeYamlFile.SaveResult ledgerSaveResult,
                                      String ledgerFailureReason,
-                                     int ledgerEntries) {
+                                     int ledgerEntries, long lastCycleDurationNanos,
+                                     long lastRegistrySaveDurationNanos) {
     }
 
     private int nextNameNumber(UUID ownerId, EntityType type) {

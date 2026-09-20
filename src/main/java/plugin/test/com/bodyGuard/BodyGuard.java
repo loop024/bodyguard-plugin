@@ -166,7 +166,9 @@ public final class BodyGuard extends JavaPlugin {
             }
             if (registryInitialized) {
                 try {
-                    guardManager.forceSave();
+                    if (!guardManager.forceSave()) {
+                        getLogger().severe("停止時の護衛データ保存に失敗しました。guards.yml の保存状態を確認してください。");
+                    }
                 } catch (RuntimeException failure) {
                     getLogger().log(Level.SEVERE, "停止時の護衛データ保存に失敗しました。", failure);
                 }

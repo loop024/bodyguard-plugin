@@ -630,6 +630,10 @@ public final class BodyGuardCommand implements CommandExecutor {
                                 : String.valueOf(snapshot.lastSaved()),
                         "ledger", String.valueOf(snapshot.ledgerEntries())));
         if (server) {
+            messages.send(sender, "status-timings",
+                    "&7直近の管理周期: &f{cycle} ms &7/ 護衛保存: &f{save} ms",
+                    Map.of("cycle", formatDuration(snapshot.lastCycleDurationNanos()),
+                            "save", formatDuration(snapshot.lastRegistrySaveDurationNanos())));
             messages.send(sender, "status-chunks",
                     "&7チャンクチケット: &f{current}/{limit}",
                     Map.of("current", String.valueOf(snapshot.managedChunks()),
@@ -648,6 +652,11 @@ public final class BodyGuardCommand implements CommandExecutor {
             }
         }
         return true;
+    }
+
+    private String formatDuration(long nanos) {
+        return nanos < 0L ? "記録なし"
+                : String.format(java.util.Locale.ROOT, "%.2f", nanos / 1_000_000.0);
     }
 
     private boolean teleport(CommandSender sender, String[] args) {
