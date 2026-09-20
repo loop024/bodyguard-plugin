@@ -11,6 +11,7 @@ import org.bukkit.entity.EntityType;
 
 import plugin.test.com.bodyGuard.guard.GuardManager;
 import plugin.test.com.bodyGuard.guard.GuardData;
+import plugin.test.com.bodyGuard.guard.CombatPolicy;
 
 /** Prevents only registered BodyGuards from selecting protected targets. */
 public final class TargetListener implements Listener {
@@ -36,12 +37,25 @@ public final class TargetListener implements Listener {
                 || manager.getGuardData(guard) == null) {
             return;
         }
+        if (event.isCancelled()) return;
         LivingEntity target = event.getTarget();
         GuardData data = manager.getGuardData(guard);
         LivingEntity commanded = manager.getCombatTarget(guard, data);
-        if (!event.isCancelled() && commanded != null && !commanded.equals(target)) {
+        CombatPolicy policy = data.getTactics().policy();
+        if (target != null && policy == CombatPolicy.PASSIVE) {
+            event.setTarget(null);
+            event.setCancelled(true);
+            return;
+        }
+        if (commanded != null && !commanded.equals(target)) {
             // Change the event, not the entity: setTarget here would nest target events.
             event.setTarget(commanded);
+            return;
+        }
+        if (target != null && commanded == null
+                && (policy == CombatPolicy.RETALIATE || policy == CombatPolicy.ASSIST)) {
+            event.setTarget(null);
+            event.setCancelled(true);
             return;
         }
         if (target == null || !manager.isForbiddenTarget(guard, target)) {

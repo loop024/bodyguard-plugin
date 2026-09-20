@@ -83,3 +83,39 @@ Sol用引き継ぎのテンプレートを使い、S0～S10の各終了時にこ
 
 ## 利用者確認結果
 未実施。[手動確認文書](COMBAT_PERFORMANCE_MANUAL_2026-09-21.md)に手順と結果欄を準備済み。実装完了後に利用者が日時・成否・ログを記録する。
+
+### S0 — 2026-09-21（実装開始）
+- 状態: 実装中。M1～M6/P1～P6の完了判定はまだ行わない。
+- 対象要求: M3、M4、M6のデータ基盤。T01、T06、T07を一部修正。
+- 変更ファイル・メソッド: `GuardManager.trackLoadedEntity`で既存契約のtacticsとsaveRevisionを再構成後へ引き継ぐ。`assignCombatTarget`の拒否時は命令だけ解除。`GuardData.setTactics`は方針のみ変更した際に巡回番号を保持し、PASSIVE時に命令を解除。`GuardData.pursuitExpired/retreat/isRetreating`の一時時計をtick引数へ変更し、標的切替だけでepisode開始時刻をリセットしない。`GuardTactics`から未使用のPDC向け文字列変換を削除。
+- 仕様上の判断と理由: 追跡episodeの開始時刻は標的変更・命令拒否で保持する。YAMLをtacticsの正本とし、Entity PDCには追加しない。
+- 既存挙動への影響: 再読み込み後も戦闘方針・巡回地点が保持される。方針変更だけでは巡回の現在番号を先頭に戻さない。戦闘時計の新APIはまだ戦闘処理へ接続されていない。
+- 保存・rollback・権限の扱い: 保存形式7は変更なし。操作サービス、権限、rollbackは今後のS1/S4で接続する。
+- 静的に確認した呼出し経路: GuardStorageのtactics読込→GuardData→GuardManager.trackLoadedEntity。新しい追跡APIの呼出し元は現時点で存在しない。`git diff --check`は実施したが、テスト・ビルドではない。
+- 未実施: テスト、Mavenビルド、サーバー起動、実機確認。
+- 残件: S0の全経路精査、S1～S10。GuardFormationの半径clampによる重複は未修正。GuardTask/GuardManagerの全件処理も未修正。
+- 次の着手先: `GuardManager.setMode/setProtection/teleportGuard`の巡回停止と保存rollback整合、その後`GuardCombatController`とCombatListener/TargetListenerへ戦闘方針を接続する。
+
+### S0 続き — 2026-09-21
+- 状態: 実装中。T02の通常操作経路を修正。巡回機能自体は未公開・未接続。
+- 対象要求: M6、T02。呼び戻し位置の記録についてT03以降の配置作業前に実測へ変更。
+- 変更ファイル・メソッド: `GuardManager.setMode`は明示的モード操作で巡回を停止し、保存失敗時に以前のtacticsを復元する。`setProtection`はROLEへの切替で巡回を停止し、保存失敗・例外時に復元する。`teleportGuard`は成功した移動の後に巡回を停止してGUARDへ固定し、Entityの実際の到着位置を保存する。`GuardData.setTactics`は地点が不変なら巡回停止/再開でもruntime番号を保持する。
+- 仕様上の判断と理由: モードを手動設定する操作はGUARDの再指定も含めて巡回を停止する。巡回中の呼び戻しはその場で固定警備となる。地点一覧は削除しない。
+- 既存挙動への影響: 巡回中の操作後に不正なGUARD/OWNER以外の巡回組合せを保存しない。呼び戻しの移動自体は保存失敗時に戻せないため、失敗を返しdirtyを維持する既存の意味を保つ。
+- 保存・rollback・権限の扱い: mode/protectionは共通Manager入口の既存所有者照合を維持。即時保存失敗はtacticsを復元する。呼び戻しは移動後保存失敗を失敗として報告する。
+- 静的に確認した呼出し経路: Command/GUIのmodeとprotection呼出しはManagerへ集中。`GuardData.setMode/setProtection`の直接呼出しはManager内だけ。`git diff --check`による差分形式確認のみ実施。
+- 未実施: テスト、Mavenビルド、サーバー起動、実機確認。
+- 残件: S0の異常系精査、S1～S10。特にS1の方針はまだ戦闘処理へ未接続、S4の巡回編集と移動も未実装。
+- 次の着手先: `CombatListener`、`TargetListener`、`GuardManager.assignCombatTarget/getCombatTarget/isForbiddenTarget`を読み、中央の方針判定を接続する。
+
+### S1 着手 — 2026-09-21
+- 状態: 実装中。戦闘方針の全経路接続・操作UIは未完了。
+- 対象要求: M3。
+- 変更ファイル・メソッド: `GuardManager.commandGuardsToTarget/commandRoleGuardsToTarget`で方針別の防衛/支援命令可否を適用。`CombatListener`でPASSIVE護衛を発射元と特定できる直接・投射・間接ダメージをキャンセルし、非LEGACYの護衛自身が被弾した際の反撃命令を追加。`TargetListener`でPASSIVE/RETALIATE/ASSISTの自然取得を制限し、他プラグインが既にキャンセルしたイベントには触れない。`GuardTask.validateCurrentTarget`と警備索敵で同じ基本制限を適用。
+- 仕様上の判断と理由: LEGACYの既存索敵経路を維持し、INTERCEPTも索敵可とした。RETALIATE/ASSISTは承認された命令の対象に限定する。
+- 既存挙動への影響: tacticsをYAMLで持つ既存護衛は方針に応じて標的取得・ダメージを抑止する。現状GUI/コマンドから方針を変更する入口は未実装。
+- 保存・rollback・権限の扱い: この段階で新しい保存操作は追加していない。設定変更サービスの所有者・権限・即時保存は次工程。
+- 静的に確認した呼出し経路: CombatListener→Manager命令→TargetListener→GuardTask、GuardTaskのGUARD/ROLE GUARD索敵。`git diff --check`による差分形式確認のみ実施。
+- 未実施: テスト、Mavenビルド、サーバー起動、実機確認。
+- 残件: 中央controllerによる全攻撃経路の統合、policyコマンド/GUI/権限/messages、標的の距離・撤退・巡回・配置・負荷改善。M3は完了扱いしない。
+- 次の着手先: `GuardCombatController`またはManager共通判定へ現在の分散条件を集約し、policy変更サービスとコマンド/GUI操作を接続する。

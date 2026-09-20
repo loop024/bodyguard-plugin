@@ -922,9 +922,13 @@ public final class GuardManager {
         if (mob == null || !owns(ownerId, mob)) return ProtectionChangeResult.NOT_LOADED;
 
         GuardData.ProtectionSnapshot previous = data.snapshotProtection();
+        GuardTactics previousTactics = data.getTactics();
         SavedPosition previousAnchor = data.getSavedAnchor();
         SavedPosition previousLast = data.getSavedLast();
         try {
+            if (kind == GuardData.ProtectionKind.ROLE && previousTactics.patrol()) {
+                data.setTactics(previousTactics.stopped());
+            }
             data.setProtection(kind, roleId);
             data.clearCombat();
             mob.setTarget(null);
@@ -942,6 +946,7 @@ public final class GuardManager {
             return ProtectionChangeResult.SUCCESS;
         } catch (RuntimeException failure) {
             data.restoreProtection(previous);
+            data.setTactics(previousTactics);
             data.setSavedPositions(previousAnchor, previousLast);
             try {
                 applyPdc(mob, data);
@@ -977,7 +982,8 @@ public final class GuardManager {
         int commanded = 0;
         for (GuardData data : getAllGuardData()) {
             if (!data.isActiveContract() || !data.isRoleProtection()
-                    || !protectedTargetId.equals(data.getSelectedTargetUuid())) continue;
+                    || !protectedTargetId.equals(data.getSelectedTargetUuid())
+                    || !data.getTactics().policy().allowsCommand(defense)) continue;
             try {
                 Mob guard = getLoadedMob(data);
                 if (guard == null || !isSelectedProtectionTarget(data, protectedPlayer)
@@ -1124,6 +1130,7 @@ public final class GuardManager {
         int commanded = 0;
         for (GuardData data : getGuards(ownerId)) {
             try {
+                if (!data.getTactics().policy().allowsCommand(defense)) continue;
                 if (data.isRoleProtection()) {
                     continue;
                 }
@@ -1153,7 +1160,11 @@ public final class GuardManager {
             return false;
         }
         GuardMode previousMode = data.getMode();
+        GuardTactics previousTactics = data.getTactics();
         SavedPosition previousAnchor = data.getSavedAnchor();
+        if (previousTactics.patrol()) {
+            data.setTactics(previousTactics.stopped());
+        }
         data.setMode(mode);
         data.clearCombat();
         Location anchor;
@@ -1173,6 +1184,7 @@ public final class GuardManager {
         dirty = true;
         if (!persistNow()) {
             data.setMode(previousMode);
+            data.setTactics(previousTactics);
             data.setSavedPositions(previousAnchor, data.getSavedLast());
             applyPdc(mob, data);
             dirty = true;
@@ -1345,12 +1357,18 @@ public final class GuardManager {
         if (destination == null || !guard.teleport(destination)) {
             return false;
         }
+        if (data.getTactics().patrol()) {
+            data.setTactics(data.getTactics().stopped());
+            data.setMode(GuardMode.GUARD);
+        }
         data.clearCombat();
         guard.setTarget(null);
-        data.setLastLocation(destination);
+        Location arrived = guard.getLocation();
+        data.setLastLocation(arrived);
         if (data.getMode() != GuardMode.FOLLOW) {
-            data.setAnchorLocation(destination);
+            data.setAnchorLocation(arrived);
         }
+        applyPdc(guard, data);
         dirty = true;
         plugin.playGuardFeedback(guard, GuardFeedback.RECALL);
         return true;

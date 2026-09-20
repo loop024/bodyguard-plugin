@@ -102,12 +102,12 @@ public final class GuardData {
     public void setTactics(GuardTactics tactics) {
         GuardTactics next = Objects.requireNonNull(tactics);
         if (this.tactics.equals(next)) return;
-        boolean routeChanged = !this.tactics.points().equals(next.points())
-                || this.tactics.patrol() != next.patrol();
+        boolean pointsChanged = !this.tactics.points().equals(next.points());
+        boolean routeChanged = pointsChanged || this.tactics.patrol() != next.patrol();
         boolean policyChanged = this.tactics.policy() != next.policy();
         this.tactics = next;
         if (routeChanged) {
-            patrolIndex = 0;
+            if (pointsChanged) patrolIndex = 0;
             movementProgress = null;
         }
         if (policyChanged && next.policy() == CombatPolicy.PASSIVE) clearCombatTarget();

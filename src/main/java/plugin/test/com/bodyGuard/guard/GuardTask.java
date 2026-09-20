@@ -148,6 +148,13 @@ public final class GuardTask extends BukkitRunnable {
             mob.setTarget(null);
         }
         LivingEntity target = mob.getTarget();
+        CombatPolicy policy = data.getTactics().policy();
+        if (target != null && (policy == CombatPolicy.PASSIVE
+                || ((policy == CombatPolicy.RETALIATE || policy == CombatPolicy.ASSIST)
+                    && (commanded == null || !commanded.equals(target))))) {
+            mob.setTarget(null);
+            return null;
+        }
         if (target == null || !EntityUtil.isAlive(target)) {
             if (target != null) {
                 mob.setTarget(null);
@@ -309,7 +316,8 @@ public final class GuardTask extends BukkitRunnable {
             return;
         }
 
-        LivingEntity nearest = findNearestHostile(mob, anchor, plugin.getGuardRadius());
+        LivingEntity nearest = allowsInterception(data)
+                ? findNearestHostile(mob, anchor, plugin.getGuardRadius()) : null;
         if (nearest != null) {
             manager.assignCombatTarget(data, mob, nearest);
             return;
@@ -362,7 +370,8 @@ public final class GuardTask extends BukkitRunnable {
         }
         if (combatTarget != null && data.isInCombat()) return;
 
-        LivingEntity nearest = findNearestHostile(mob, anchor, radius);
+        LivingEntity nearest = allowsInterception(data)
+                ? findNearestHostile(mob, anchor, radius) : null;
         if (nearest != null) {
             manager.assignCombatTarget(data, mob, nearest);
             return;
@@ -387,6 +396,11 @@ public final class GuardTask extends BukkitRunnable {
         return candidates.stream()
                 .min(Comparator.comparingDouble(entity -> guard.getLocation().distanceSquared(entity.getLocation())))
                 .orElse(null);
+    }
+
+    private boolean allowsInterception(GuardData data) {
+        CombatPolicy policy = data.getTactics().policy();
+        return policy == CombatPolicy.LEGACY || policy == CombatPolicy.INTERCEPT;
     }
 
     private void teleportNearOwner(GuardData data, Mob mob, Location ownerLocation) {
