@@ -6,6 +6,8 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityTargetLivingEntityEvent;
+import org.bukkit.event.entity.EntityChangeBlockEvent;
+import org.bukkit.entity.EntityType;
 
 import plugin.test.com.bodyGuard.guard.GuardManager;
 import plugin.test.com.bodyGuard.guard.GuardData;
@@ -17,6 +19,15 @@ public final class TargetListener implements Listener {
 
     public TargetListener(GuardManager manager) {
         this.manager = manager;
+    }
+
+    /** Keep silverfish guards from entering blocks and losing their tracked entity. */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onGuardChangeBlock(EntityChangeBlockEvent event) {
+        if (event.getEntityType() == EntityType.SILVERFISH
+                && manager.getGuardData(event.getEntity()) != null) {
+            event.setCancelled(true);
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)

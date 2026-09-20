@@ -345,7 +345,7 @@ Zombie、Skeleton、Husk、Stray、Drowned、Bogged、Wither Skeleton、Zombifie
 | ゾグリン | `/bg summon zoglin` | 近接護衛 |
 | オオカミ | `/bg summon wolf` | 近接護衛。座っている場合は立たせて使用 |
 | シロクマ | `/bg summon polar_bear` | 近接護衛。広い移動経路を用意してください |
-| シルバーフィッシュ | `/bg summon silverfish` | 小型の近接護衛。石材に関する固有AIは維持 |
+| シルバーフィッシュ | `/bg summon silverfish` | 小型の近接護衛。護衛中はブロックへの潜伏を防止 |
 | エンダーマイト | `/bg summon endermite` | 小型の近接護衛 |
 | 村人ゾンビ | `/bg summon zombie_villager` | 近接護衛。治療による変身後の護衛継続には未対応 |
 
