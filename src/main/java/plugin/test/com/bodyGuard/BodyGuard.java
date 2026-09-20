@@ -240,6 +240,22 @@ public final class BodyGuard extends JavaPlugin {
             requireInteger(configuration, "guard-management.chunk-loads-per-cycle", 1, 16);
             requireInteger(configuration, "guard-management.search-chunks-per-cycle", 1, 256);
             requireInteger(configuration, "performance.max-guards-per-cycle", 10, 1000);
+            requireInteger(configuration, "performance.management-records-per-cycle", 1, 1000);
+            requireFinite(configuration, "performance.cycle-budget-ms", 1.0, 50.0);
+            requireInteger(configuration, "performance.idle-interval-ticks", 10, 200);
+            requireInteger(configuration, "limits.max-guards-server", 0, 100000);
+            requireInteger(configuration, "limits.warning-guards-server", 0, 100000);
+            requireBoolean(configuration, "limits.op-unlimited-summon");
+            requireInteger(configuration, "storage.minimum-auto-save-seconds", 5, 300);
+            requireBoolean(configuration, "formation.enabled");
+            requireFinite(configuration, "formation.spacing", 1.0, 6.0);
+            requireBoolean(configuration, "combat.pursuit.enabled");
+            requireInteger(configuration, "combat.pursuit.max-seconds", 5, 300);
+            requireInteger(configuration, "combat.pursuit.unseen-seconds", 2, 60);
+            requireFinite(configuration, "combat.pursuit.max-protection-distance", 3.0, 128.0);
+            requireInteger(configuration, "combat.pursuit.retreat-seconds", 2, 60);
+            requireBoolean(configuration, "combat.ranged-spacing.enabled");
+            requireFinite(configuration, "combat.ranged-spacing.minimum-distance", 2.0, 12.0);
             int maxChunks = configuration.getInt("guard-management.max-loaded-chunks", 64);
             int ownerChunks = configuration.getInt("guard-management.max-loaded-chunks-per-owner", 16);
             if (ownerChunks > maxChunks) {
@@ -474,6 +490,23 @@ public final class BodyGuard extends JavaPlugin {
     public int getMaxGuardsPerCycle() {
         return intSetting("performance.max-guards-per-cycle", 100, 10, 1000);
     }
+
+    public int getManagementRecordsPerCycle() { return intSetting("performance.management-records-per-cycle", 64, 1, 1000); }
+    public long getCycleBudgetNanos() { return (long) (doubleSetting("performance.cycle-budget-ms", 5.0, 1.0, 50.0) * 1_000_000); }
+    public int getIdleIntervalTicks() { return intSetting("performance.idle-interval-ticks", 40, 10, 200); }
+    public int getServerGuardLimit() { return intSetting("limits.max-guards-server", 0, 0, 100000); }
+    public int getServerGuardWarning() { return intSetting("limits.warning-guards-server", 200, 0, 100000); }
+    public boolean isOpSummonUnlimited(Player player) { return player.isOp() && getConfig().getBoolean("limits.op-unlimited-summon", true); }
+    public long getMinimumAutoSaveMillis() { return intSetting("storage.minimum-auto-save-seconds", 10, 5, 300) * 1000L; }
+    public boolean isFormationEnabled() { return getConfig().getBoolean("formation.enabled", true); }
+    public double getFormationSpacing() { return doubleSetting("formation.spacing", 2.0, 1.0, 6.0); }
+    public boolean isPursuitLimitEnabled() { return getConfig().getBoolean("combat.pursuit.enabled", true); }
+    public long getPursuitMaxMillis() { return intSetting("combat.pursuit.max-seconds", 30, 5, 300) * 1000L; }
+    public long getPursuitUnseenMillis() { return intSetting("combat.pursuit.unseen-seconds", 5, 2, 60) * 1000L; }
+    public double getPursuitDistance() { return doubleSetting("combat.pursuit.max-protection-distance", 24.0, 3.0, 128.0); }
+    public long getRetreatMillis() { return intSetting("combat.pursuit.retreat-seconds", 5, 2, 60) * 1000L; }
+    public boolean isRangedSpacingEnabled() { return getConfig().getBoolean("combat.ranged-spacing.enabled", true); }
+    public double getRangedMinimumDistance() { return doubleSetting("combat.ranged-spacing.minimum-distance", 5.0, 2.0, 12.0); }
 
     public double getFollowStartDistance() {
         return doubleSetting("follow.start-distance", 5.0, 0.0, 1024.0);

@@ -13,6 +13,7 @@ import org.bukkit.entity.EntityType;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import plugin.test.com.bodyGuard.guard.GuardData;
+import plugin.test.com.bodyGuard.guard.GuardTactics;
 import plugin.test.com.bodyGuard.guard.GuardMode;
 import plugin.test.com.bodyGuard.guard.SavedPosition;
 
@@ -140,6 +141,10 @@ public final class GuardStorage {
                 "guards." + path + ".missing-observations", 0)));
 
         readProtection(configuration, guards, path, data);
+        data.setTactics(GuardTactics.read(guards, path + ".tactics"));
+        if (data.getTactics().patrol() && (data.isRoleProtection() || data.getMode() != GuardMode.GUARD)) {
+            throw new IllegalArgumentException("巡回は所有者保護の警備モードで使用してください");
+        }
 
         if (data.getContractStatus() == GuardData.ContractStatus.RELEASE_PENDING
                 && (parsedOperationType == null || parsedOperationType != GuardData.OperationType.RELEASE)) {
@@ -353,6 +358,7 @@ public final class GuardStorage {
                 configuration.set(path + ".owner-name", data.getOwnerName());
                 configuration.set(path + ".mob-type", data.getMobType().name());
                 configuration.set(path + ".mode", data.getMode().commandName());
+                data.getTactics().write(configuration, path + ".tactics");
                 configuration.set(path + ".name", data.getName());
                 configuration.set(path + ".name-number", data.getNameNumber());
                 configuration.set(path + ".contract-status", data.getContractStatus().name());

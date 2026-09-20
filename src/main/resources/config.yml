@@ -5,13 +5,27 @@ general:
 storage:
   # Save changed guard data periodically. Set to 0 to disable periodic saves.
   autosave-seconds: 60
+  # イベントによる保存要求をまとめる最短間隔。登録・解除・削除は即時保存。
+  minimum-auto-save-seconds: 10
 
 performance:
   # Maximum guard ticks processed every 10 server ticks. Remaining guards wait for the next cycle.
   max-guards-per-cycle: 100
+  management-records-per-cycle: 64
+  # 処理の区切りで次周期へ繰り越す目安。単一処理や保存の上限保証ではありません。
+  cycle-budget-ms: 5.0
+  idle-interval-ticks: 40
 
 limits:
   max-guards-per-player: 10
+  # 0は全体上限なし。正の値はOPを含む新規召喚・勧誘に適用。
+  max-guards-server: 0
+  warning-guards-server: 200
+  op-unlimited-summon: true
+
+formation:
+  enabled: true
+  spacing: 2.0
 
 guard-management:
   # Keep guards belonging to online owners loaded so health, location and actions
@@ -71,6 +85,15 @@ combat:
   defend-owner: true
   target-range: 25.0
   combat-grace-seconds: 8.0
+  pursuit:
+    enabled: true
+    max-seconds: 30
+    unseen-seconds: 5
+    max-protection-distance: 24.0
+    retreat-seconds: 5
+  ranged-spacing:
+    enabled: true
+    minimum-distance: 5.0
 
 friendly-fire:
   owner-can-damage-guards: false

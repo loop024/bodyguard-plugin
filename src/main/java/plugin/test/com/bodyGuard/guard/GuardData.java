@@ -89,6 +89,43 @@ public final class GuardData {
     private UUID combatTargetId;
     private boolean offlineFrozen;
     private boolean favorite;
+    private GuardTactics tactics = GuardTactics.DEFAULT;
+    private int patrolIndex;
+    private long pursuitStarted;
+    private long targetLastSeen;
+    private long retreatUntil;
+    private UUID pursuitTarget;
+    private long lastAiUpdateNanos;
+    private long nextAiTick;
+
+    public GuardTactics getTactics() { return tactics; }
+    public void setTactics(GuardTactics tactics) {
+        this.tactics = Objects.requireNonNull(tactics);
+        patrolIndex = 0;
+        movementProgress = null;
+        clearCombat();
+    }
+    public int getPatrolIndex() { return patrolIndex; }
+    public void advancePatrol() { patrolIndex = (patrolIndex + 1) % Math.max(1, tactics.points().size()); }
+    public long getLastAiUpdateNanos() { return lastAiUpdateNanos; }
+    public void setLastAiUpdateNanos(long value) { lastAiUpdateNanos = value; }
+    public long getNextAiTick() { return nextAiTick; }
+    public void setNextAiTick(long value) { nextAiTick = value; }
+    public boolean isRetreating() { return System.currentTimeMillis() < retreatUntil; }
+    public void retreat(long millis) {
+        clearCombat();
+        retreatUntil = System.currentTimeMillis() + millis;
+    }
+    public boolean pursuitExpired(UUID target, boolean visible, long maxMillis, long unseenMillis) {
+        long now = System.currentTimeMillis();
+        if (!target.equals(pursuitTarget)) {
+            pursuitTarget = target;
+            pursuitStarted = now;
+            targetLastSeen = now;
+        }
+        if (visible) targetLastSeen = now;
+        return now - pursuitStarted >= maxMillis || now - targetLastSeen >= unseenMillis;
+    }
     // Runtime only: not serialized to YAML or entity PDC.
     GuardMovementRecovery.Progress movementProgress;
     private GuardMovementRecovery.State transferState = GuardMovementRecovery.State.NORMAL;
@@ -219,6 +256,9 @@ public final class GuardData {
     public void clearCombat() {
         combatTargetId = null;
         combatUntilMillis = 0L;
+        pursuitTarget = null;
+        pursuitStarted = 0L;
+        targetLastSeen = 0L;
     }
 
     public boolean isOfflineFrozen() { return offlineFrozen; }
