@@ -343,7 +343,7 @@ Zombie、Skeleton、Husk、Stray、Drowned、Bogged、Wither Skeleton、Zombifie
 
 護衛EntityにはPersistentDataContainerでBodyGuard識別情報、所有者UUID、護衛UUID、種類、モード、名前、名前番号、お気に入り状態、契約世代、保護種類、役職ID、選択対象UUID、選択リビジョンを保存します。`guards.yml` には管理情報、名前番号、待機・警備地点、契約状態、最終確認位置を保存し、`operations.yml` には解除・完全削除・死亡の受理と完了を独立して保存します。壊れた個別レコードは `quarantine.yml` に保全できた場合だけ隔離します。所有者ごとの相棒UUID、仲間、チュートリアル状態は `players.yml` に保存します。位置にはワールド名とワールドUUIDを保存し、解決にはワールドUUIDだけを使います。UUIDがない位置は未解決のまま保持し、同名の別ワールドへは自動接続しません。Entityが未読み込みの間は、表示で取得できないHP・距離を推測しません。
 
-`guards.yml` の保存versionは6、`players.yml` は3、`operations.yml` は1です。`guards.yml` には役職保護の種類、役職ID、最終選択対象UUID、選択リビジョン、移動状態も保存します。役職保護項目がない既存記録はOWNERとして読み込みます。未対応の新しいversionは上書きせず起動を停止します。既存の古い設定にない項目は安全な既定値で補完しますが、型が不正な項目は保全して読み飛ばします。
+`guards.yml` の保存versionは6、`players.yml` は4、`operations.yml` は1です。`guards.yml` には役職保護の種類、役職ID、最終選択対象UUID、選択リビジョン、移動状態も保存します。役職保護項目がない既存記録はOWNERとして読み込みます。未対応の新しいversionは上書きせず起動を停止します。既存の古い設定にない項目は安全な既定値で補完しますが、型が不正な項目は保全して読み飛ばします。
 
 `guards.yml`、`players.yml`、`operations.yml` は一時ファイルを検証してから置き換え、直前の正常な内容を `.bak` に残します。破損時は元ファイルを `.damaged-...` として保全してからバックアップ復旧を試み、両方を復旧できない場合は空データで上書きせず起動を停止します。保存失敗は管理者へ通知し、解除・削除などの変更は保留して再試行します。自動保存を0にしても、失敗した保存の再試行は独立して動きます。
 
@@ -377,7 +377,7 @@ build.bat
 
 ## 安全性改善の手動確認
 
-初心者向けの確認項目を、基本操作から保存破損・チャンク上限まで T01～T30 に分けています。必ず検証用サーバーで [MANUAL_VERIFICATION.md](MANUAL_VERIFICATION.md) を使って確認してください。実行者が確認した項目だけを成功として記録し、再現できない項目は未確認のまま残してください。
+初心者向けの基本操作の確認項目は、この下の手順を使って検証用サーバーで確認してください。追加改善の確認は [追加改善の計画・進捗](docs/IMPROVEMENTS_2026-09-21.md)、直近の設定と個人設定の確認は [残りの改善計画](docs/REMAINING_IMPROVEMENTS_PLAN_2026-09-21.md) を参照してください。実行者が確認した項目だけを成功として記録してください。
 
 ## 初心者向け手動確認手順
 
@@ -432,7 +432,7 @@ NMS、CraftBukkit内部クラス、Paper専用APIは使用していません。M
 - `GuardListQuery`: 一覧の絞り込み、並べ替え、状態集計
 - `BodyGuardMenuHolder`: 画面種別、対象UUID、ページ、表示条件の保持
 
-実装の方針と静的レビューの記録は `SOL_IMPLEMENTATION_PLAN.md` と `SAFETY_IMPLEMENTATION.md` を参照してください。
+実装の方針と進捗は [全面改良計画](docs/OVERHAUL_README.md) と [追加改善の計画・進捗](docs/IMPROVEMENTS_2026-09-21.md) を参照してください。
 
 ## 既知の制約
 
