@@ -335,7 +335,23 @@ ArmorStandなどの補助Entityは作らないため、チャンクのアンロ�
 
 ## 初期対応Mob
 
-Zombie、Skeleton、Husk、Stray、Drowned、Bogged、Wither Skeleton、Zombified Piglin、Spider、Cave Spider、Pillager、Vindicatorです。`config.yml` の `allowed-mobs` で変更できます。
+Zombie、Skeleton、Husk、Stray、Drowned、Bogged、Wither Skeleton、Zombified Piglin、Spider、Cave Spider、Pillager、Vindicatorに、次の9種類を加えた全21種類です。`config.yml` の `allowed-mobs` で変更できます。
+
+| 追加した護衛 | 召喚コマンド | 特徴 |
+| --- | --- | --- |
+| アイアンゴーレム | `/bg summon iron_golem` | 大型の近接護衛 |
+| スノーゴーレム | `/bg summon snow_golem` | 雪玉による遠距離支援。通常の敵へのダメージは期待できません |
+| ラヴェジャー | `/bg summon ravager` | 大型の近接護衛。広い移動経路を用意してください |
+| ゾグリン | `/bg summon zoglin` | 近接護衛 |
+| オオカミ | `/bg summon wolf` | 近接護衛。座っている場合は立たせて使用 |
+| シロクマ | `/bg summon polar_bear` | 近接護衛。広い移動経路を用意してください |
+| シルバーフィッシュ | `/bg summon silverfish` | 小型の近接護衛。石材に関する固有AIは維持 |
+| エンダーマイト | `/bg summon endermite` | 小型の近接護衛 |
+| 村人ゾンビ | `/bg summon zombie_villager` | 近接護衛。治療による変身後の護衛継続には未対応 |
+
+第2弾の5種類を既存サーバーで使う場合は、`allowed-mobs` へ `WOLF`、`POLAR_BEAR`、`SILVERFISH`、`ENDERMITE`、`ZOMBIE_VILLAGER` を追記してください。オオカミの手なずけ・座り状態など、Mob固有のAIは変更していません。
+
+既存サーバーではJarの更新に加え、サーバー側の `allowed-mobs` へ `IRON_GOLEM`、`SNOW_GOLEM`、`RAVAGER`、`ZOGLIN` を追加してください。既存の許可設定は自動変更しません。日本語名・特徴は既存の `messages.yml` にキーがなくても同梱表示を利用します。[追加の計画・進行記録と初心者向け確認手順](docs/GUARD_TYPES_EXPANSION_2026-09-21.md) に設定の貼り付け例を記載しています。
 
 初期設定では、Creeper、Enderman、Witch、Ghast、Blaze、Wither、Ender Dragon、Wardenなどは対象外です。設定で追加するMobは、Spigot APIから通常のMobとして扱える種類だけが有効です。
 

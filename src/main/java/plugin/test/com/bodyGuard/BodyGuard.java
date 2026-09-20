@@ -65,7 +65,16 @@ public final class BodyGuard extends JavaPlugin {
             EntityType.SPIDER,
             EntityType.CAVE_SPIDER,
             EntityType.PILLAGER,
-            EntityType.VINDICATOR
+            EntityType.VINDICATOR,
+            EntityType.IRON_GOLEM,
+            EntityType.SNOW_GOLEM,
+            EntityType.RAVAGER,
+            EntityType.ZOGLIN,
+            EntityType.WOLF,
+            EntityType.POLAR_BEAR,
+            EntityType.SILVERFISH,
+            EntityType.ENDERMITE,
+            EntityType.ZOMBIE_VILLAGER
     );
 
     private NamespacedKeys keys;
